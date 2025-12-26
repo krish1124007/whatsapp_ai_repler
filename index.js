@@ -34,18 +34,51 @@ app.get("/webhook", (req, res) => {
 
 // 🔹 WEBHOOK RECEIVE
 app.post("/webhook", async (req, res) => {
+  // ✅ ALWAYS respond 200 immediately to prevent Meta timeout
+  res.sendStatus(200);
+
   try {
-    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
+    // 🔹 LOG FULL REQUEST BODY FOR DEBUGGING
+    console.log("📥 Webhook POST received");
+    console.log("Full Body:", JSON.stringify(req.body, null, 2));
+
+    // 🔹 EXTRACT DATA
+    const entry = req.body?.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const value = changes?.value;
+
+    // 🔹 HANDLE MESSAGE STATUSES (delivered, read, sent, etc.)
+    if (value?.statuses) {
+      console.log("📊 Status Update:", JSON.stringify(value.statuses, null, 2));
+      return; // Don't process status updates
+    }
+
+    // 🔹 EXTRACT MESSAGE
     const message = value?.messages?.[0];
 
-    if (!message || message.type !== "text") {
-      return res.sendStatus(200);
+    if (!message) {
+      console.log("⚠️ No message found in webhook");
+      return;
+    }
+
+    console.log("📨 Message Type:", message.type);
+    console.log("📨 Message Object:", JSON.stringify(message, null, 2));
+
+    // 🔹 ONLY PROCESS TEXT MESSAGES
+    if (message.type !== "text") {
+      console.log(`⏭️ Skipping non-text message type: ${message.type}`);
+      return;
     }
 
     const from = message.from;
-    const userText = message.text.body;
+    const userText = message.text?.body;
 
-    console.log("User:", userText);
+    if (!userText) {
+      console.log("⚠️ No text body found in message");
+      return;
+    }
+
+    console.log(`👤 User (${from}):`, userText);
 
     // 🔹 GROQ AI CALL
     const aiResponse = await axios.post(
@@ -68,6 +101,8 @@ app.post("/webhook", async (req, res) => {
     const replyText =
       aiResponse.data.choices[0].message.content || "Sorry, try again.";
 
+    console.log("🤖 AI Reply:", replyText);
+
     // 🔹 SEND WHATSAPP MESSAGE
     await axios.post(
       `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`,
@@ -84,10 +119,13 @@ app.post("/webhook", async (req, res) => {
       }
     );
 
-    res.sendStatus(200);
+    console.log("✅ Reply sent successfully");
+
   } catch (error) {
-    console.error("ERROR:", error.response?.data || error.message);
-    res.sendStatus(200);
+    console.error("❌ ERROR:", error.response?.data || error.message);
+    if (error.stack) {
+      console.error("Stack:", error.stack);
+    }
   }
 });
 app.get("/privacy-policy", (req, res) => {
