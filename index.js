@@ -86,7 +86,10 @@ app.post("/webhook", async (req, res) => {
       {
         model: "llama-3.1-8b-instant",
         messages: [
-          { role: "system", content: "You are a helpful WhatsApp assistant." },
+          {
+            role: "system",
+            content: "You are a WhatsApp assistant for Jeta Fly Tours and Travel. You do not have access to live data or the website content of https://jetafly58.com/. Only answer questions using information explicitly provided by the user about Jeta Fly services. Do not guess or create flight details, prices, or schedules. If the user asks for any information that is not provided by them or is unrelated to Jeta Fly Tours and Travel, reply only with: 'Sorry, I don't know.'"
+          },
           { role: "user", content: userText }
         ]
       },
