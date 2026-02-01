@@ -1,8 +1,18 @@
 require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
+const cors = require("cors");
+const connectDB = require("./config/database");
+const dashboardRoutes = require("./routes/dashboard");
+const { saveContact, saveConversation, estimateTokens } = require("./functions/conversationHelper");
 
 const app = express();
+
+// Connect to MongoDB
+connectDB();
+
+// Middleware
+app.use(cors());
 app.use(express.json());
 
 // ================== CONFIG ==================
@@ -18,6 +28,10 @@ const {
 app.get("/", (req, res) => {
   res.send("WhatsApp Groq Bot is running");
 });
+
+// 🔹 DASHBOARD API ROUTES
+app.use("/api/dashboard", dashboardRoutes);
+
 
 // 🔹 WEBHOOK VERIFY
 app.get("/webhook", (req, res) => {
@@ -105,6 +119,23 @@ app.post("/webhook", async (req, res) => {
       aiResponse.data.choices[0].message.content || "Sorry, try again.";
 
     console.log("🤖 AI Reply:", replyText);
+
+    // 🔹 EXTRACT TOKEN USAGE FROM GROQ RESPONSE
+    const usage = aiResponse.data.usage || {};
+    const inputTokens = usage.prompt_tokens || estimateTokens(userText);
+    const outputTokens = usage.completion_tokens || estimateTokens(replyText);
+
+    console.log(`📊 Tokens - Input: ${inputTokens}, Output: ${outputTokens}`);
+
+    // 🔹 SAVE TO DATABASE
+    try {
+      await saveContact(from);
+      await saveConversation(from, userText, replyText, inputTokens, outputTokens);
+      console.log("💾 Conversation saved to database");
+    } catch (dbError) {
+      console.error("❌ Database save error:", dbError.message);
+      // Continue even if database save fails
+    }
 
     // 🔹 SEND WHATSAPP MESSAGE
     await axios.post(
