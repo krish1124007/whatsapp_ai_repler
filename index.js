@@ -5,6 +5,7 @@ const cors = require("cors");
 const connectDB = require("./config/database");
 const dashboardRoutes = require("./routes/dashboard");
 const { saveContact, saveConversation, estimateTokens } = require("./functions/conversationHelper");
+import adminRoutes from "./routes/admin.js";
 
 const app = express();
 
@@ -32,6 +33,8 @@ app.get("/", (req, res) => {
 // 🔹 DASHBOARD API ROUTES
 app.use("/api/dashboard", dashboardRoutes);
 
+// 🔹 ADMIN API ROUTES
+app.use("/api/admin", adminRoutes);
 
 // 🔹 WEBHOOK VERIFY
 app.get("/webhook", (req, res) => {

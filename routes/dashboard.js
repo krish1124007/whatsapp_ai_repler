@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const Contact = require('../models/Contact');
 const Conversation = require('../models/Conversation');
+const { authMiddleware } = require('../middleware/auth.cjs');
+
+// Apply authentication middleware to all dashboard routes
+router.use(authMiddleware);
 
 // Get all contacts with pagination and search
 router.get('/contacts', async (req, res) => {
