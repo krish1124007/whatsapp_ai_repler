@@ -1,6 +1,6 @@
-import Admin from "../models/admin.js";
+const Admin = require("../models/admin.js");
 
-export const createAdmin = async (req, res) => {
+const createAdmin = async (req, res) => {
     try {
         const { name, password } = req.body;
         const admin = await Admin.create({ name, password });
@@ -10,7 +10,7 @@ export const createAdmin = async (req, res) => {
     }
 }
 
-export const loginAdmin = async (req, res) => {
+const loginAdmin = async (req, res) => {
     try {
         const { name, password } = req.body;
         const admin = await Admin.findOne({ name });
@@ -29,7 +29,7 @@ export const loginAdmin = async (req, res) => {
 }
 
 
-export {
+module.exports = {
     createAdmin,
     loginAdmin
 }

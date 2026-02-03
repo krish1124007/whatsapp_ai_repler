@@ -5,7 +5,7 @@ const cors = require("cors");
 const connectDB = require("./config/database");
 const dashboardRoutes = require("./routes/dashboard");
 const { saveContact, saveConversation, estimateTokens } = require("./functions/conversationHelper");
-import adminRoutes from "./routes/admin.js";
+const adminRoutes = require("./routes/admin.js");
 
 const app = express();
 

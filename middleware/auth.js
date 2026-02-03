@@ -1,7 +1,7 @@
-import jwt from "jsonwebtoken";
-import Admin from "../models/admin.js";
+const jwt = require("jsonwebtoken");
+const Admin = require("../models/admin.js");
 
-export const authMiddleware = async (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
     try {
         // Get token from header
         const token = req.header("Authorization")?.replace("Bearer ", "");
@@ -48,3 +48,6 @@ export const authMiddleware = async (req, res, next) => {
         });
     }
 };
+
+
+module.exports = authMiddleware;

@@ -1,6 +1,6 @@
-import mongoose from "mongoose";
-import jwt from "jsonwebtoken"
-import bcrypt from "bcrypt"
+const mongoose = require("mongoose");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
 
 const adminSchema = new mongoose.Schema({
     name: {
@@ -29,4 +29,4 @@ adminSchema.methods.comparePassword = async function (password) {
 
 const Admin = mongoose.model("Admin", adminSchema);
 
-export default Admin;
+module.exports = Admin;
