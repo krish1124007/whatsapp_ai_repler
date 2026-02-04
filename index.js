@@ -6,6 +6,10 @@ const connectDB = require("./config/database");
 const dashboardRoutes = require("./routes/dashboard");
 const { saveContact, saveConversation, estimateTokens } = require("./functions/conversationHelper");
 const adminRoutes = require("./routes/admin.js");
+const enquiriesRoutes = require("./routes/enquiries.js");
+const { getOrCreateEnquiry, updateEnquiryData, createCallbackRequest, getCurrentStage } = require("./functions/travelEnquiryHelper");
+const { generateSystemPrompt, generateConversationContext } = require("./functions/systemPromptGenerator");
+const { parseUserResponse } = require("./functions/responseParser");
 
 const app = express();
 
@@ -35,6 +39,9 @@ app.use("/api/dashboard", dashboardRoutes);
 
 // 🔹 ADMIN API ROUTES
 app.use("/api/admin", adminRoutes);
+
+// 🔹 TRAVEL ENQUIRIES API ROUTES
+app.use("/api/enquiries", enquiriesRoutes);
 
 // 🔹 WEBHOOK VERIFY
 app.get("/webhook", (req, res) => {
@@ -97,7 +104,30 @@ app.post("/webhook", async (req, res) => {
 
     console.log(`👤 User (${from}):`, userText);
 
-    // 🔹 GROQ AI CALL
+    // 🔹 GET OR CREATE TRAVEL ENQUIRY
+    const enquiry = await getOrCreateEnquiry(from);
+    const currentStage = enquiry.conversationStage;
+
+    console.log(`📍 Current Stage: ${currentStage}`);
+
+    // 🔹 PARSE USER RESPONSE BASED ON CURRENT STAGE
+    let parsedData = null;
+    if (currentStage !== 'greeting' && currentStage !== 'completed') {
+      parsedData = parseUserResponse(currentStage, userText);
+      console.log(`📊 Parsed Data:`, parsedData);
+    }
+
+    // 🔹 GENERATE DYNAMIC SYSTEM PROMPT
+    const systemPrompt = generateSystemPrompt(currentStage, {
+      destination: enquiry.destination,
+      preferredTravelDates: enquiry.preferredTravelDates,
+      clientName: enquiry.clientName,
+      tripType: enquiry.tripType
+    });
+
+    const conversationContext = generateConversationContext(enquiry);
+
+    // 🔹 GROQ AI CALL WITH DYNAMIC PROMPT
     const aiResponse = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
@@ -105,10 +135,12 @@ app.post("/webhook", async (req, res) => {
         messages: [
           {
             role: "system",
-            content: "You are a WhatsApp assistant for Jet A Fly Tours and Travel. You do not have access to live data or the website content of https://jetafly58.com/. Only answer questions using information explicitly provided by the user about Jet A Fly services. Do not guess or create flight details, prices, or schedules. If the user asks for any information that is not provided by them or is unrelated to Jet A Fly Tours and Travel, reply only with: 'Sorry, I don't know.'"
+            content: systemPrompt + conversationContext
           },
           { role: "user", content: userText }
-        ]
+        ],
+        temperature: 0.7,
+        max_tokens: 500
       },
       {
         headers: {
@@ -129,6 +161,23 @@ app.post("/webhook", async (req, res) => {
     const outputTokens = usage.completion_tokens || estimateTokens(replyText);
 
     console.log(`📊 Tokens - Input: ${inputTokens}, Output: ${outputTokens}`);
+
+    // 🔹 UPDATE ENQUIRY DATA BASED ON PARSED RESPONSE
+    if (parsedData && currentStage !== 'completed') {
+      try {
+        // Handle callback request specially
+        if (currentStage === 'callback_or_contact' && parsedData.wantsCallback) {
+          await createCallbackRequest(from, parsedData.preferredTime);
+          console.log(`📞 Callback request created for ${from}`);
+        } else {
+          // Update enquiry data for current stage
+          await updateEnquiryData(from, currentStage, parsedData);
+          console.log(`✅ Enquiry data updated for stage: ${currentStage}`);
+        }
+      } catch (updateError) {
+        console.error('❌ Error updating enquiry data:', updateError.message);
+      }
+    }
 
     // 🔹 SAVE TO DATABASE
     try {
