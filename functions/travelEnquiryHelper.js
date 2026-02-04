@@ -41,8 +41,28 @@ async function updateEnquiryData(phoneNumber, stage, data) {
                 break;
 
             case 'travel_dates':
-                enquiry.preferredTravelDates = data.dates;
-                enquiry.conversationStage = 'days_nights';
+                // Handle comprehensive response - save all provided data
+                if (data.dates) enquiry.preferredTravelDates = data.dates;
+                if (data.daysNights) enquiry.numberOfDaysNights = data.daysNights;
+                if (data.travellers) enquiry.totalTravellers = data.travellers;
+                if (data.city) enquiry.departureCity = data.city;
+                if (data.category) enquiry.hotelCategory = data.category;
+                if (data.rooms) enquiry.roomRequirement = data.rooms;
+                if (data.mealPlan) enquiry.mealPlan = data.mealPlan;
+                if (data.services) enquiry.servicesRequired = data.services;
+                if (data.budget) enquiry.approximateBudget = data.budget;
+                if (data.tripType) enquiry.tripType = data.tripType;
+                if (data.requirements) enquiry.specialRequirements = data.requirements;
+                if (data.passport) enquiry.passportDetails = data.passport;
+                if (data.name) enquiry.clientName = data.name;
+                if (data.email) enquiry.email = data.email;
+
+                // Move to contact_info or callback stage based on what's provided
+                if (data.name) {
+                    enquiry.conversationStage = 'callback_or_contact';
+                } else {
+                    enquiry.conversationStage = 'contact_info';
+                }
                 break;
 
             case 'days_nights':

@@ -293,6 +293,134 @@ function parseCallbackPreference(text) {
 }
 
 /**
+ * Parse comprehensive response with all travel details
+ */
+function parseComprehensiveResponse(text) {
+    const result = {
+        dates: null,
+        daysNights: null,
+        travellers: null,
+        city: null,
+        category: null,
+        rooms: null,
+        mealPlan: null,
+        services: null,
+        budget: null,
+        tripType: null,
+        requirements: null,
+        passport: null,
+        name: null,
+        email: null
+    };
+
+    // Parse travel dates
+    const datePatterns = [
+        /(?:dates?|travel|from|between)[:\s]*([0-9]{1,2}[-\/][0-9]{1,2}[-\/][0-9]{2,4}.*?to.*?[0-9]{1,2}[-\/][0-9]{1,2}[-\/][0-9]{2,4})/i,
+        /([0-9]{1,2}[-\/][0-9]{1,2}[-\/][0-9]{2,4}.*?to.*?[0-9]{1,2}[-\/][0-9]{1,2}[-\/][0-9]{2,4})/i,
+        /(?:dates?|travel)[:\s]*(.+?)(?:\n|$)/i
+    ];
+    for (const pattern of datePatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            result.dates = match[1].trim();
+            break;
+        }
+    }
+
+    // Parse days/nights
+    const daysMatch = text.match(/(\d+)\s*days?\s*[\/\-]?\s*(\d+)\s*nights?/i);
+    if (daysMatch) {
+        result.daysNights = `${daysMatch[1]} days / ${daysMatch[2]} nights`;
+    }
+
+    // Parse travellers
+    const travellerData = parseTravellers(text);
+    if (travellerData.travellers) {
+        result.travellers = travellerData.travellers;
+    }
+
+    // Parse departure city
+    const cityPatterns = [
+        /(?:departure|from|leaving from|city)[:\s]*([A-Za-z\s]+?)(?:\n|,|\d|$)/i,
+        /(?:departing from)[:\s]*([A-Za-z\s]+?)(?:\n|,|\d|$)/i
+    ];
+    for (const pattern of cityPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            result.city = match[1].trim();
+            break;
+        }
+    }
+
+    // Parse hotel category
+    const hotelData = parseHotelCategory(text);
+    if (hotelData.category) {
+        result.category = hotelData.category;
+    }
+
+    // Parse rooms
+    const roomMatch = text.match(/(\d+)\s*(room|rooms|double|single)/i);
+    if (roomMatch) {
+        result.rooms = roomMatch[0].trim();
+    }
+
+    // Parse meal plan
+    const mealData = parseMealPlan(text);
+    if (mealData.mealPlan) {
+        result.mealPlan = mealData.mealPlan;
+    }
+
+    // Parse services
+    const servicesData = parseServices(text);
+    if (servicesData.services) {
+        result.services = servicesData.services;
+    }
+
+    // Parse budget
+    const budgetPatterns = [
+        /(?:budget|price|cost)[:\s]*(?:rs\.?|inr|₹)?\s*(\d+[,\d]*)/i,
+        /(?:rs\.?|inr|₹)\s*(\d+[,\d]*)/i,
+        /(\d+[,\d]*)\s*(?:rs\.?|inr|rupees)/i
+    ];
+    for (const pattern of budgetPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            result.budget = match[1].replace(/,/g, '') + ' INR';
+            break;
+        }
+    }
+
+    // Parse trip type
+    const tripData = parseTripType(text);
+    if (tripData.tripType) {
+        result.tripType = tripData.tripType;
+    }
+
+    // Parse special requirements
+    const reqMatch = text.match(/(?:special|requirements?|preferences?)[:\s]*(.+?)(?:\n\n|\d+\.|$)/is);
+    if (reqMatch) {
+        result.requirements = reqMatch[1].trim();
+    }
+
+    // Parse passport details
+    const passportData = parsePassportDetails(text);
+    if (passportData.passport) {
+        result.passport = passportData.passport;
+    }
+
+    // Parse contact info
+    const contactData = parseContactInfo(text);
+    if (contactData.name) {
+        result.name = contactData.name;
+    }
+    if (contactData.email) {
+        result.email = contactData.email;
+    }
+
+    return result;
+}
+
+/**
  * Main parser function
  */
 function parseUserResponse(stage, text) {
@@ -302,7 +430,8 @@ function parseUserResponse(stage, text) {
             return parseDestination(text);
 
         case 'travel_dates':
-            return parseTravelDates(text);
+            // Parse comprehensive response with all details
+            return parseComprehensiveResponse(text);
 
         case 'days_nights':
             return parseDaysNights(text);
@@ -354,5 +483,6 @@ module.exports = {
     parseTravellers,
     parseServices,
     parseContactInfo,
-    parseCallbackPreference
+    parseCallbackPreference,
+    parseComprehensiveResponse
 };
