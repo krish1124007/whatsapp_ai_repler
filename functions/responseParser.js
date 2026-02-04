@@ -301,6 +301,7 @@ function parseComprehensiveResponse(text) {
         daysNights: null,
         travellers: null,
         city: null,
+        destination: null,
         category: null,
         rooms: null,
         mealPlan: null,
@@ -313,11 +314,54 @@ function parseComprehensiveResponse(text) {
         email: null
     };
 
+    // Parse source and destination cities (e.g., "Ahmedabad to Delhi", "from Mumbai to Goa")
+    const cityPatterns = [
+        /(?:from\s+)?([A-Za-z\s]+?)\s+to\s+([A-Za-z\s]+?)(?:\s|,|\.|\n|$)/i,
+        /(?:book|trip|travel).*?(?:from\s+)?([A-Za-z\s]+?)\s+to\s+([A-Za-z\s]+?)(?:\s|,|\.|\n|$)/i
+    ];
+
+    for (const pattern of cityPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            result.city = match[1].trim(); // Departure city
+            result.destination = match[2].trim(); // Destination
+            console.log(`🏙️ Extracted cities: ${result.city} → ${result.destination}`);
+
+            // Check if international based on common international destinations
+            const internationalKeywords = ['dubai', 'singapore', 'thailand', 'bali', 'maldives', 'paris',
+                'london', 'new york', 'malaysia', 'sri lanka', 'nepal', 'bhutan'];
+            const destLower = result.destination.toLowerCase();
+            const isInternational = internationalKeywords.some(keyword => destLower.includes(keyword));
+
+            if (isInternational) {
+                result.destination = 'International - ' + result.destination;
+            } else {
+                result.destination = 'Domestic - ' + result.destination;
+            }
+            break;
+        }
+    }
+
+    // If no "from-to" pattern, try to extract just destination
+    if (!result.destination) {
+        const destPatterns = [
+            /(?:to|visit|going to|travelling to)\s+([A-Za-z\s]+?)(?:\s|,|\.|\n|$)/i,
+            /(?:destination|place)[\s:]+([A-Za-z\s]+?)(?:\s|,|\.|\n|$)/i
+        ];
+        for (const pattern of destPatterns) {
+            const match = text.match(pattern);
+            if (match) {
+                result.destination = match[1].trim();
+                break;
+            }
+        }
+    }
+
     // Parse travel dates
     const datePatterns = [
-        /(?:dates?|travel|from|between)[:\s]*([0-9]{1,2}[-\/][0-9]{1,2}[-\/][0-9]{2,4}.*?to.*?[0-9]{1,2}[-\/][0-9]{1,2}[-\/][0-9]{2,4})/i,
+        /(?:dates?|travel|from|between)[\s:]*([0-9]{1,2}[-\/][0-9]{1,2}[-\/][0-9]{2,4}.*?to.*?[0-9]{1,2}[-\/][0-9]{1,2}[-\/][0-9]{2,4})/i,
         /([0-9]{1,2}[-\/][0-9]{1,2}[-\/][0-9]{2,4}.*?to.*?[0-9]{1,2}[-\/][0-9]{1,2}[-\/][0-9]{2,4})/i,
-        /(?:dates?|travel)[:\s]*(.+?)(?:\n|$)/i
+        /(?:dates?|travel)[\s:]*(.+?)(?:\n|$)/i
     ];
     for (const pattern of datePatterns) {
         const match = text.match(pattern);
@@ -339,16 +383,18 @@ function parseComprehensiveResponse(text) {
         result.travellers = travellerData.travellers;
     }
 
-    // Parse departure city
-    const cityPatterns = [
-        /(?:departure|from|leaving from|city)[:\s]*([A-Za-z\s]+?)(?:\n|,|\d|$)/i,
-        /(?:departing from)[:\s]*([A-Za-z\s]+?)(?:\n|,|\d|$)/i
-    ];
-    for (const pattern of cityPatterns) {
-        const match = text.match(pattern);
-        if (match) {
-            result.city = match[1].trim();
-            break;
+    // Parse departure city (if not already extracted from "from-to" pattern)
+    if (!result.city) {
+        const cityPatterns = [
+            /(?:departure|from|leaving from|city)[\s:]*([A-Za-z\s]+?)(?:\n|,|\d|$)/i,
+            /(?:departing from)[\s:]*([A-Za-z\s]+?)(?:\n|,|\d|$)/i
+        ];
+        for (const pattern of cityPatterns) {
+            const match = text.match(pattern);
+            if (match) {
+                result.city = match[1].trim();
+                break;
+            }
         }
     }
 
@@ -378,7 +424,7 @@ function parseComprehensiveResponse(text) {
 
     // Parse budget
     const budgetPatterns = [
-        /(?:budget|price|cost)[:\s]*(?:rs\.?|inr|₹)?\s*(\d+[,\d]*)/i,
+        /(?:budget|price|cost)[\s:]*(?:rs\.?|inr|₹)?\s*(\d+[,\d]*)/i,
         /(?:rs\.?|inr|₹)\s*(\d+[,\d]*)/i,
         /(\d+[,\d]*)\s*(?:rs\.?|inr|rupees)/i
     ];
@@ -397,7 +443,7 @@ function parseComprehensiveResponse(text) {
     }
 
     // Parse special requirements
-    const reqMatch = text.match(/(?:special|requirements?|preferences?)[:\s]*(.+?)(?:\n\n|\d+\.|$)/is);
+    const reqMatch = text.match(/(?:special|requirements?|preferences?)[\s:]*(.+?)(?:\n\n|\d+\.|$)/is);
     if (reqMatch) {
         result.requirements = reqMatch[1].trim();
     }
@@ -430,8 +476,33 @@ function parseUserResponse(stage, text) {
             return parseDestination(text);
 
         case 'travel_dates':
-            // Parse comprehensive response with all details
+            // Parse basic trip details (destination, dates, days, travellers, hotel, rooms)
             return parseComprehensiveResponse(text);
+
+        case 'hotel_details':
+            // Parse meal plan and services
+            const mealData = parseMealPlan(text);
+            const servicesData = parseServices(text);
+            return {
+                mealPlan: mealData.mealPlan,
+                services: servicesData.services
+            };
+
+        case 'budget_triptype':
+            // Parse budget, trip type, requirements, passport
+            const budgetMatch = text.match(/(?:budget|price|cost)[\s:]*(?:rs\.?|inr|₹)?\s*(\d+[,\d]*)/i) ||
+                text.match(/(?:rs\.?|inr|₹)\s*(\d+[,\d]*)/i) ||
+                text.match(/(\d+[,\d]*)\s*(?:rs\.?|inr|rupees)/i);
+            const tripTypeData = parseTripType(text);
+            const passportData = parsePassportDetails(text);
+
+            return {
+                budget: budgetMatch ? budgetMatch[1].replace(/,/g, '') + ' INR' : null,
+                tripType: tripTypeData.tripType,
+                requirements: text.includes('None') || text.includes('none') ? 'None' :
+                    (text.match(/(?:requirements?|special|preferences?)[\s:]*(.+?)(?:\n|passport|budget|$)/is)?.[1]?.trim() || null),
+                passport: passportData.passport
+            };
 
         case 'days_nights':
             return parseDaysNights(text);

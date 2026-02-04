@@ -41,28 +41,36 @@ async function updateEnquiryData(phoneNumber, stage, data) {
                 break;
 
             case 'travel_dates':
-                // Handle comprehensive response - save all provided data
+                // Handle basic trip details (5-6 questions)
                 if (data.dates) enquiry.preferredTravelDates = data.dates;
                 if (data.daysNights) enquiry.numberOfDaysNights = data.daysNights;
                 if (data.travellers) enquiry.totalTravellers = data.travellers;
                 if (data.city) enquiry.departureCity = data.city;
                 if (data.category) enquiry.hotelCategory = data.category;
                 if (data.rooms) enquiry.roomRequirement = data.rooms;
+
+                // Move to hotel details (meal plan & services)
+                enquiry.conversationStage = 'hotel_details';
+                break;
+
+            case 'hotel_details':
+                // Handle meal plan and services
                 if (data.mealPlan) enquiry.mealPlan = data.mealPlan;
                 if (data.services) enquiry.servicesRequired = data.services;
+
+                // Move to budget & trip type
+                enquiry.conversationStage = 'budget_triptype';
+                break;
+
+            case 'budget_triptype':
+                // Handle budget, trip type, special requirements, passport
                 if (data.budget) enquiry.approximateBudget = data.budget;
                 if (data.tripType) enquiry.tripType = data.tripType;
                 if (data.requirements) enquiry.specialRequirements = data.requirements;
                 if (data.passport) enquiry.passportDetails = data.passport;
-                if (data.name) enquiry.clientName = data.name;
-                if (data.email) enquiry.email = data.email;
 
-                // Move to contact_info or callback stage based on what's provided
-                if (data.name) {
-                    enquiry.conversationStage = 'callback_or_contact';
-                } else {
-                    enquiry.conversationStage = 'contact_info';
-                }
+                // Move to contact info
+                enquiry.conversationStage = 'contact_info';
                 break;
 
             case 'days_nights':

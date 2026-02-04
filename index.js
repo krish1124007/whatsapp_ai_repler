@@ -112,9 +112,28 @@ app.post("/webhook", async (req, res) => {
 
     // 🔹 PARSE USER RESPONSE BASED ON CURRENT STAGE
     let parsedData = null;
-    if (currentStage !== 'greeting' && currentStage !== 'completed') {
-      parsedData = parseUserResponse(currentStage, userText);
-      console.log(`📊 Parsed Data:`, parsedData);
+    if (currentStage !== 'completed') {
+      // For greeting stage, check if user provides direct booking details
+      if (currentStage === 'greeting') {
+        const lowerText = userText.toLowerCase();
+        // Check if user is directly requesting a booking
+        if (lowerText.includes('book') || lowerText.includes('trip') ||
+          lowerText.includes('travel') || lowerText.includes('plan') ||
+          lowerText.match(/\bto\b/) || lowerText.match(/from\b/)) {
+          // Try to extract comprehensive information
+          parsedData = parseUserResponse('travel_dates', userText);
+          console.log(`📊 Direct booking detected! Parsed Data:`, parsedData);
+
+          // Also try to determine domestic/international
+          const destData = parseUserResponse('destination', userText);
+          if (destData.destination) {
+            parsedData.destination = destData.destination;
+          }
+        }
+      } else {
+        parsedData = parseUserResponse(currentStage, userText);
+        console.log(`📊 Parsed Data:`, parsedData);
+      }
     }
 
     // 🔹 GENERATE DYNAMIC SYSTEM PROMPT
@@ -127,18 +146,43 @@ app.post("/webhook", async (req, res) => {
 
     const conversationContext = generateConversationContext(enquiry);
 
-    // 🔹 GROQ AI CALL WITH DYNAMIC PROMPT
+    // 🔹 GET RECENT CONVERSATION HISTORY FOR CONTEXT
+    let conversationHistory = [];
+    try {
+      const recentConversation = await Conversation.findOne({ phoneNumber: from })
+        .sort({ createdAt: -1 });
+
+      if (recentConversation && recentConversation.messages.length > 0) {
+        // Get last 5 messages for context (excluding current message)
+        conversationHistory = recentConversation.messages
+          .slice(-5)
+          .map(msg => ({
+            role: msg.role,
+            content: msg.content
+          }));
+        console.log(`📜 Including ${conversationHistory.length} previous messages for context`);
+      }
+    } catch (historyError) {
+      console.error('⚠️ Error fetching conversation history:', historyError.message);
+      // Continue without history
+    }
+
+    // 🔹 BUILD MESSAGES ARRAY WITH HISTORY
+    const messages = [
+      {
+        role: "system",
+        content: systemPrompt + conversationContext
+      },
+      ...conversationHistory, // Include previous conversation
+      { role: "user", content: userText }
+    ];
+
+    // 🔹 GROQ AI CALL WITH DYNAMIC PROMPT AND HISTORY
     const aiResponse = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
         model: "llama-3.1-8b-instant",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt + conversationContext
-          },
-          { role: "user", content: userText }
-        ],
+        messages: messages,
         temperature: 0.7,
         max_tokens: 500
       },

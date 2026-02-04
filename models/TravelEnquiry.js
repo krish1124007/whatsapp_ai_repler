@@ -112,6 +112,8 @@ const travelEnquirySchema = new mongoose.Schema({
             'greeting',
             'destination',
             'travel_dates',
+            'hotel_details',
+            'budget_triptype',
             'days_nights',
             'travellers',
             'departure_city',
