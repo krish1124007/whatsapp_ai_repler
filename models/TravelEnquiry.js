@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const travelEnquirySchema = new mongoose.Schema({
+    // Essential Contact Information
     phoneNumber: {
         type: String,
         required: true,
@@ -10,79 +11,33 @@ const travelEnquirySchema = new mongoose.Schema({
         type: String,
         default: null
     },
-    email: {
-        type: String,
-        default: null
-    },
 
-    // Destination Details
+    // Core Travel Details (Minimal)
     destination: {
-        type: String, // Domestic / International
+        type: String,
         default: null
     },
     preferredTravelDates: {
         type: String,
         default: null
     },
-    numberOfDaysNights: {
-        type: String,
-        default: null
+    numberOfPeople: {
+        type: Number,
+        default: 1
     },
-
-    // Traveller Details
-    totalTravellers: {
-        adults: { type: Number, default: 0 },
-        children: [{ age: Number }],
-        infants: { type: Number, default: 0 }
-    },
-    departureCity: {
-        type: String,
-        default: null
-    },
-
-    // Hotel & Meal Preferences
-    hotelCategory: {
-        type: String, // Budget / 3★ / 4★ / 5★
-        default: null
-    },
-    roomRequirement: {
-        type: String,
-        default: null
-    },
-    mealPlan: {
-        type: String,
-        default: null
-    },
-
-    // Services Required
-    servicesRequired: {
-        flights: { type: Boolean, default: false },
-        hotels: { type: Boolean, default: false },
-        transfers: { type: Boolean, default: false },
-        sightseeing: { type: Boolean, default: false },
-        visa: { type: Boolean, default: false },
-        travelInsurance: { type: Boolean, default: false }
-    },
-
-    // Budget & Trip Type
     approximateBudget: {
         type: String,
         default: null
     },
+
+    // Optional Additional Info
     tripType: {
-        type: String, // Family / Honeymoon / Group / Corporate / Religious
+        type: String, // Family / Honeymoon / Group / Solo
         default: null
     },
     specialRequirements: {
         type: String,
         default: null
-    },
-
-    // Passport Details (for international trips)
-    passportDetails: {
-        hasPassport: { type: Boolean, default: null },
-        passportNumber: { type: String, default: null },
-        expiryDate: { type: String, default: null }
     },
 
     // Callback Request
@@ -112,19 +67,10 @@ const travelEnquirySchema = new mongoose.Schema({
             'greeting',
             'destination',
             'travel_dates',
-            'hotel_details',
-            'budget_triptype',
-            'days_nights',
-            'travellers',
-            'departure_city',
-            'hotel_category',
-            'room_requirement',
-            'meal_plan',
-            'services',
+            'number_of_people',
             'budget',
             'trip_type',
             'special_requirements',
-            'passport_details',
             'contact_info',
             'callback_or_contact',
             'completed'
@@ -132,7 +78,7 @@ const travelEnquirySchema = new mongoose.Schema({
         default: 'greeting'
     },
 
-    // Metadata
+    // Metadata for any additional collected data
     collectedData: {
         type: Map,
         of: mongoose.Schema.Types.Mixed,
