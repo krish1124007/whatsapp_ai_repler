@@ -48,9 +48,24 @@ async function updateEnquiryData(phoneNumber, stage, data) {
                 if (data.city) enquiry.departureCity = data.city;
                 if (data.category) enquiry.hotelCategory = data.category;
                 if (data.rooms) enquiry.roomRequirement = data.rooms;
+                if (data.name) enquiry.clientName = data.name;
+                if (data.destination) enquiry.destination = data.destination;
 
-                // Move to hotel details (meal plan & services)
-                enquiry.conversationStage = 'hotel_details';
+                // Check if we have enough core information to skip intermediate stages
+                const hasCorInfo = enquiry.clientName &&
+                    enquiry.destination &&
+                    enquiry.preferredTravelDates &&
+                    enquiry.totalTravellers &&
+                    enquiry.hotelCategory;
+
+                if (hasCorInfo) {
+                    // We have enough! Skip to closing
+                    console.log(`✅ Core info complete, skipping to contact_info stage`);
+                    enquiry.conversationStage = 'contact_info';
+                } else {
+                    // Missing some info, ask more questions
+                    enquiry.conversationStage = 'hotel_details';
+                }
                 break;
 
             case 'hotel_details':
@@ -136,7 +151,9 @@ async function updateEnquiryData(phoneNumber, stage, data) {
             case 'contact_info':
                 if (data.name) enquiry.clientName = data.name;
                 if (data.email) enquiry.email = data.email;
-                enquiry.conversationStage = 'callback_or_contact';
+                // Mark as completed immediately
+                enquiry.conversationStage = 'completed';
+                enquiry.status = 'in_progress';
                 break;
 
             case 'callback_request':
