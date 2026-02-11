@@ -17,7 +17,15 @@ const travelEnquirySchema = new mongoose.Schema({
         type: String,
         default: null
     },
+    departureCity: {
+        type: String,
+        default: null
+    },
     preferredTravelDates: {
+        type: String,
+        default: null
+    },
+    numberOfDaysNights: {
         type: String,
         default: null
     },
@@ -25,7 +33,35 @@ const travelEnquirySchema = new mongoose.Schema({
         type: Number,
         default: 1
     },
+    totalTravellers: {
+        type: mongoose.Schema.Types.Mixed, // Can be number or object with adults/children
+        default: null
+    },
     approximateBudget: {
+        type: String,
+        default: null
+    },
+    hotelCategory: {
+        type: String,
+        default: null
+    },
+    roomRequirement: {
+        type: String,
+        default: null
+    },
+    mealPlan: {
+        type: String,
+        default: null
+    },
+    servicesRequired: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null
+    },
+    passportDetails: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null
+    },
+    email: {
         type: String,
         default: null
     },
@@ -67,6 +103,8 @@ const travelEnquirySchema = new mongoose.Schema({
             'greeting',
             'destination',
             'travel_dates',
+            'hotel_details',
+            'budget_triptype',
             'number_of_people',
             'budget',
             'trip_type',

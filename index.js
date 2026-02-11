@@ -136,15 +136,42 @@ app.post("/webhook", async (req, res) => {
       }
     }
 
-    // 🔹 GENERATE DYNAMIC SYSTEM PROMPT
+    // 🔹 UPDATE ENQUIRY DATA BASED ON PARSED RESPONSE (BEFORE AI RESPONSE!)
+    let updatedEnquiry = enquiry; // Start with current enquiry
+    if (parsedData && currentStage !== 'completed') {
+      try {
+        // Handle callback request specially
+        if (currentStage === 'callback_or_contact' && parsedData.wantsCallback) {
+          await createCallbackRequest(from, parsedData.preferredTime);
+          console.log(`📞 Callback request created for ${from}`);
+        } else {
+          // Update enquiry data for current stage
+          updatedEnquiry = await updateEnquiryData(from, currentStage, parsedData);
+          console.log(`✅ Enquiry data updated for stage: ${currentStage}`);
+          console.log(`📊 Updated enquiry data:`, {
+            name: updatedEnquiry.clientName,
+            destination: updatedEnquiry.destination,
+            from: updatedEnquiry.departureCity,
+            dates: updatedEnquiry.preferredTravelDates,
+            travelers: updatedEnquiry.totalTravellers,
+            hotel: updatedEnquiry.hotelCategory
+          });
+        }
+      } catch (updateError) {
+        console.error('❌ Error updating enquiry data:', updateError.message);
+      }
+    }
+
+    // 🔹 GENERATE DYNAMIC SYSTEM PROMPT (using UPDATED enquiry)
     const systemPrompt = generateSystemPrompt(currentStage, {
-      destination: enquiry.destination,
-      preferredTravelDates: enquiry.preferredTravelDates,
-      clientName: enquiry.clientName,
-      tripType: enquiry.tripType
+      destination: updatedEnquiry.destination,
+      preferredTravelDates: updatedEnquiry.preferredTravelDates,
+      clientName: updatedEnquiry.clientName,
+      tripType: updatedEnquiry.tripType
     });
 
-    const conversationContext = generateConversationContext(enquiry);
+    const conversationContext = generateConversationContext(updatedEnquiry);
+    console.log(`📋 Conversation Context:`, conversationContext);
 
     // 🔹 GET RECENT CONVERSATION HISTORY FOR CONTEXT
     let conversationHistory = [];
@@ -205,23 +232,6 @@ app.post("/webhook", async (req, res) => {
     const outputTokens = usage.completion_tokens || estimateTokens(replyText);
 
     console.log(`📊 Tokens - Input: ${inputTokens}, Output: ${outputTokens}`);
-
-    // 🔹 UPDATE ENQUIRY DATA BASED ON PARSED RESPONSE
-    if (parsedData && currentStage !== 'completed') {
-      try {
-        // Handle callback request specially
-        if (currentStage === 'callback_or_contact' && parsedData.wantsCallback) {
-          await createCallbackRequest(from, parsedData.preferredTime);
-          console.log(`📞 Callback request created for ${from}`);
-        } else {
-          // Update enquiry data for current stage
-          await updateEnquiryData(from, currentStage, parsedData);
-          console.log(`✅ Enquiry data updated for stage: ${currentStage}`);
-        }
-      } catch (updateError) {
-        console.error('❌ Error updating enquiry data:', updateError.message);
-      }
-    }
 
     // 🔹 SAVE TO DATABASE
     try {
