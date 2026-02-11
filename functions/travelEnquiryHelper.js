@@ -1,5 +1,68 @@
 const TravelEnquiry = require('../models/TravelEnquiry');
 
+function derivePeopleCount(travellers) {
+    if (!travellers) return null;
+    if (typeof travellers === 'number') return travellers;
+
+    if (typeof travellers === 'string') {
+        const match = travellers.match(/\d+/);
+        return match ? parseInt(match[0], 10) : null;
+    }
+
+    if (typeof travellers === 'object') {
+        let total = 0;
+        if (typeof travellers.adults === 'number') total += travellers.adults;
+        if (Array.isArray(travellers.children)) total += travellers.children.length;
+        if (typeof travellers.infants === 'number') total += travellers.infants;
+        return total || null;
+    }
+
+    return null;
+}
+
+function applyParsedData(enquiry, data = {}) {
+    if (data.destination) enquiry.destination = data.destination;
+    if (data.city) enquiry.departureCity = data.city;
+    if (data.dates) enquiry.preferredTravelDates = data.dates;
+    if (data.daysNights) enquiry.numberOfDaysNights = data.daysNights;
+    if (data.travellers) {
+        enquiry.totalTravellers = data.travellers;
+        const peopleCount = derivePeopleCount(data.travellers);
+        if (peopleCount) enquiry.numberOfPeople = peopleCount;
+    }
+    if (data.category) enquiry.hotelCategory = data.category;
+    if (data.rooms) enquiry.roomRequirement = data.rooms;
+    if (data.mealPlan) enquiry.mealPlan = data.mealPlan;
+    if (data.services) enquiry.servicesRequired = data.services;
+    if (data.budget) enquiry.approximateBudget = data.budget;
+    if (data.tripType) enquiry.tripType = data.tripType;
+    if (data.requirements) enquiry.specialRequirements = data.requirements;
+    if (data.passport) enquiry.passportDetails = data.passport;
+    if (data.name) enquiry.clientName = data.name;
+    if (data.email) enquiry.email = data.email;
+    if (data.travelType) enquiry.travelType = data.travelType;
+}
+
+function hasAnyCoreTravelData(enquiry) {
+    return Boolean(
+        enquiry.clientName ||
+        enquiry.destination ||
+        enquiry.preferredTravelDates ||
+        enquiry.travelType ||
+        enquiry.approximateBudget
+    );
+}
+
+function hasAllPrimaryFields(enquiry) {
+    return Boolean(
+        enquiry.clientName &&
+        enquiry.destination &&
+        enquiry.preferredTravelDates &&
+        enquiry.travelType &&
+        enquiry.approximateBudget
+    );
+}
+
 /**
  * Get or create a travel enquiry for a phone number
  */
@@ -16,12 +79,12 @@ async function getOrCreateEnquiry(phoneNumber) {
                 conversationStage: 'greeting'
             });
             await enquiry.save();
-            console.log(`✅ Created new travel enquiry for ${phoneNumber}`);
+            console.log(`Created new travel enquiry for ${phoneNumber}`);
         }
 
         return enquiry;
     } catch (error) {
-        console.error('❌ Error in getOrCreateEnquiry:', error);
+        console.error('Error in getOrCreateEnquiry:', error);
         throw error;
     }
 }
@@ -33,125 +96,88 @@ async function updateEnquiryData(phoneNumber, stage, data) {
     try {
         const enquiry = await getOrCreateEnquiry(phoneNumber);
 
-        // Update the specific field based on stage
         switch (stage) {
+            case 'greeting':
+                applyParsedData(enquiry, data);
+                enquiry.conversationStage = hasAllPrimaryFields(enquiry)
+                    ? 'contact_info'
+                    : 'travel_dates';
+                break;
+
             case 'destination':
                 enquiry.destination = data.destination;
                 enquiry.conversationStage = 'travel_dates';
                 break;
 
             case 'travel_dates':
-                // Handle basic trip details (5-6 questions)
-                if (data.dates) enquiry.preferredTravelDates = data.dates;
-                if (data.daysNights) enquiry.numberOfDaysNights = data.daysNights;
-                if (data.travellers) enquiry.totalTravellers = data.travellers;
-                if (data.city) enquiry.departureCity = data.city;
-                if (data.category) enquiry.hotelCategory = data.category;
-                if (data.rooms) enquiry.roomRequirement = data.rooms;
-                if (data.name) enquiry.clientName = data.name;
-                if (data.destination) enquiry.destination = data.destination;
-
-                // Check if we have enough core information to skip intermediate stages
-                const hasCorInfo = enquiry.clientName &&
-                    enquiry.destination &&
-                    enquiry.preferredTravelDates &&
-                    enquiry.totalTravellers &&
-                    enquiry.hotelCategory;
-
-                if (hasCorInfo) {
-                    // We have enough! Skip to closing
-                    console.log(`✅ Core info complete, skipping to contact_info stage`);
-                    enquiry.conversationStage = 'contact_info';
-                } else {
-                    // Missing some info, ask more questions
-                    enquiry.conversationStage = 'hotel_details';
-                }
-                break;
-
             case 'hotel_details':
-                // Handle meal plan and services
-                if (data.mealPlan) enquiry.mealPlan = data.mealPlan;
-                if (data.services) enquiry.servicesRequired = data.services;
-
-                // Move to budget & trip type
-                enquiry.conversationStage = 'budget_triptype';
-                break;
-
             case 'budget_triptype':
-                // Handle budget, trip type, special requirements, passport
-                if (data.budget) enquiry.approximateBudget = data.budget;
-                if (data.tripType) enquiry.tripType = data.tripType;
-                if (data.requirements) enquiry.specialRequirements = data.requirements;
-                if (data.passport) enquiry.passportDetails = data.passport;
-
-                // Move to contact info
-                enquiry.conversationStage = 'contact_info';
+                applyParsedData(enquiry, data);
+                enquiry.conversationStage = hasAllPrimaryFields(enquiry)
+                    ? 'contact_info'
+                    : 'travel_dates';
                 break;
 
             case 'days_nights':
                 enquiry.numberOfDaysNights = data.daysNights;
-                enquiry.conversationStage = 'travellers';
+                enquiry.conversationStage = 'travel_dates';
                 break;
 
             case 'travellers':
                 enquiry.totalTravellers = data.travellers;
-                enquiry.conversationStage = 'departure_city';
+                enquiry.numberOfPeople = derivePeopleCount(data.travellers) || enquiry.numberOfPeople;
+                enquiry.conversationStage = 'travel_dates';
                 break;
 
             case 'departure_city':
                 enquiry.departureCity = data.city;
-                enquiry.conversationStage = 'hotel_category';
+                enquiry.conversationStage = 'travel_dates';
                 break;
 
             case 'hotel_category':
                 enquiry.hotelCategory = data.category;
-                enquiry.conversationStage = 'room_requirement';
+                enquiry.conversationStage = 'travel_dates';
                 break;
 
             case 'room_requirement':
                 enquiry.roomRequirement = data.rooms;
-                enquiry.conversationStage = 'meal_plan';
+                enquiry.conversationStage = 'travel_dates';
                 break;
 
             case 'meal_plan':
                 enquiry.mealPlan = data.mealPlan;
-                enquiry.conversationStage = 'services';
+                enquiry.conversationStage = 'travel_dates';
                 break;
 
             case 'services':
                 enquiry.servicesRequired = data.services;
-                enquiry.conversationStage = 'budget';
+                enquiry.conversationStage = 'travel_dates';
                 break;
 
             case 'budget':
                 enquiry.approximateBudget = data.budget;
-                enquiry.conversationStage = 'trip_type';
+                enquiry.conversationStage = 'travel_dates';
                 break;
 
             case 'trip_type':
                 enquiry.tripType = data.tripType;
-                enquiry.conversationStage = 'special_requirements';
+                enquiry.conversationStage = 'travel_dates';
                 break;
 
             case 'special_requirements':
                 enquiry.specialRequirements = data.requirements;
-                // Check if international trip
-                if (enquiry.destination && enquiry.destination.toLowerCase().includes('international')) {
-                    enquiry.conversationStage = 'passport_details';
-                } else {
-                    enquiry.conversationStage = 'contact_info';
-                }
+                enquiry.conversationStage = 'travel_dates';
                 break;
 
             case 'passport_details':
                 enquiry.passportDetails = data.passport;
-                enquiry.conversationStage = 'contact_info';
+                enquiry.conversationStage = 'travel_dates';
                 break;
 
             case 'contact_info':
-                if (data.name) enquiry.clientName = data.name;
-                if (data.email) enquiry.email = data.email;
-                // Mark as completed immediately
+                applyParsedData(enquiry, data);
+                enquiry.callbackRequested = hasAnyCoreTravelData(enquiry);
+                enquiry.preferredCallbackTime = enquiry.preferredCallbackTime || 'ASAP';
                 enquiry.conversationStage = 'completed';
                 enquiry.status = 'in_progress';
                 break;
@@ -164,20 +190,20 @@ async function updateEnquiryData(phoneNumber, stage, data) {
                 break;
 
             case 'completed':
+                applyParsedData(enquiry, data);
                 enquiry.conversationStage = 'completed';
                 enquiry.status = 'in_progress';
                 break;
         }
 
-        // Store in collectedData as well for reference
         enquiry.collectedData.set(stage, data);
 
         await enquiry.save();
-        console.log(`✅ Updated enquiry for ${phoneNumber} - Stage: ${stage}`);
+        console.log(`Updated enquiry for ${phoneNumber} - Stage: ${stage}`);
 
         return enquiry;
     } catch (error) {
-        console.error('❌ Error in updateEnquiryData:', error);
+        console.error('Error in updateEnquiryData:', error);
         throw error;
     }
 }
@@ -196,10 +222,10 @@ async function createCallbackRequest(phoneNumber, preferredTime = 'ASAP') {
 
         await enquiry.save();
 
-        console.log(`✅ Callback request created for ${phoneNumber}`);
+        console.log(`Callback request created for ${phoneNumber}`);
         return enquiry;
     } catch (error) {
-        console.error('❌ Error in createCallbackRequest:', error);
+        console.error('Error in createCallbackRequest:', error);
         throw error;
     }
 }
@@ -212,7 +238,7 @@ async function getCurrentStage(phoneNumber) {
         const enquiry = await getOrCreateEnquiry(phoneNumber);
         return enquiry.conversationStage;
     } catch (error) {
-        console.error('❌ Error in getCurrentStage:', error);
+        console.error('Error in getCurrentStage:', error);
         return 'greeting';
     }
 }
@@ -235,7 +261,7 @@ async function getAllEnquiries(filters = {}) {
 
         return enquiries;
     } catch (error) {
-        console.error('❌ Error in getAllEnquiries:', error);
+        console.error('Error in getAllEnquiries:', error);
         throw error;
     }
 }
@@ -247,7 +273,7 @@ async function getEnquiryById(id) {
     try {
         return await TravelEnquiry.findById(id);
     } catch (error) {
-        console.error('❌ Error in getEnquiryById:', error);
+        console.error('Error in getEnquiryById:', error);
         throw error;
     }
 }
@@ -265,10 +291,10 @@ async function updateEnquiryStatus(id, status) {
         enquiry.status = status;
         await enquiry.save();
 
-        console.log(`✅ Updated enquiry ${id} status to ${status}`);
+        console.log(`Updated enquiry ${id} status to ${status}`);
         return enquiry;
     } catch (error) {
-        console.error('❌ Error in updateEnquiryStatus:', error);
+        console.error('Error in updateEnquiryStatus:', error);
         throw error;
     }
 }
@@ -281,7 +307,10 @@ async function getEnquiryStats() {
         const total = await TravelEnquiry.countDocuments();
         const newEnquiries = await TravelEnquiry.countDocuments({ status: 'new' });
         const inProgress = await TravelEnquiry.countDocuments({ status: 'in_progress' });
-        const callbackRequests = await TravelEnquiry.countDocuments({ callbackRequested: true, status: { $in: ['new', 'in_progress'] } });
+        const callbackRequests = await TravelEnquiry.countDocuments({
+            callbackRequested: true,
+            status: { $in: ['new', 'in_progress'] }
+        });
         const honeymoonLeads = await TravelEnquiry.countDocuments({ tags: 'honeymoon' });
         const groupLeads = await TravelEnquiry.countDocuments({ tags: 'group' });
         const internationalLeads = await TravelEnquiry.countDocuments({ tags: 'international' });
@@ -296,7 +325,7 @@ async function getEnquiryStats() {
             internationalLeads
         };
     } catch (error) {
-        console.error('❌ Error in getEnquiryStats:', error);
+        console.error('Error in getEnquiryStats:', error);
         throw error;
     }
 }

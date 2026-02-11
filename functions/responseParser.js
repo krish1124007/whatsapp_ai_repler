@@ -100,7 +100,7 @@ function parseHotelCategory(text) {
         return { category: '3 Star' };
     }
 
-    return { category: text.trim() };
+    return { category: null };
 }
 
 /**
@@ -188,7 +188,7 @@ function parseTripType(text) {
         return { tripType: 'Religious' };
     }
 
-    return { tripType: text.trim() };
+    return { tripType: null };
 }
 
 /**
@@ -209,6 +209,10 @@ function parseSpecialRequirements(text) {
  */
 function parsePassportDetails(text) {
     const lowerText = text.toLowerCase();
+
+    if (!lowerText.includes('passport')) {
+        return { passport: null };
+    }
 
     if (lowerText.includes('no') || lowerText.includes('don\'t have') || lowerText.includes('not have')) {
         return {
@@ -311,7 +315,8 @@ function parseComprehensiveResponse(text) {
         requirements: null,
         passport: null,
         name: null,
-        email: null
+        email: null,
+        travelType: null
     };
 
     // Parse source and destination cities (e.g., "Ahmedabad to Delhi", "from Mumbai to Goa")
@@ -398,11 +403,9 @@ function parseComprehensiveResponse(text) {
         }
     }
 
-    // Parse hotel category
+    // Parse hotel category only when explicitly present
     const hotelData = parseHotelCategory(text);
-    if (hotelData.category) {
-        result.category = hotelData.category;
-    }
+    result.category = hotelData.category;
 
     // Parse rooms
     const roomMatch = text.match(/(\d+)\s*(room|rooms|double|single)/i);
@@ -410,15 +413,16 @@ function parseComprehensiveResponse(text) {
         result.rooms = roomMatch[0].trim();
     }
 
-    // Parse meal plan
-    const mealData = parseMealPlan(text);
-    if (mealData.mealPlan) {
+    // Parse meal plan only when keywords are present
+    if (/(all inclusive|all-inclusive|full board|american plan|half board|modified american|breakfast|continental plan|room only|no meal|meal plan)/i.test(text)) {
+        const mealData = parseMealPlan(text);
         result.mealPlan = mealData.mealPlan;
     }
 
     // Parse services
     const servicesData = parseServices(text);
-    if (servicesData.services) {
+    const hasServiceKeyword = /(flight|air|ticket|hotel|accommodation|stay|transfer|transport|cab|sightseeing|tour|activity|visa|insurance|all|everything|complete)/i.test(text);
+    if (hasServiceKeyword && servicesData.services) {
         result.services = servicesData.services;
     }
 
@@ -436,11 +440,9 @@ function parseComprehensiveResponse(text) {
         }
     }
 
-    // Parse trip type
+    // Parse trip type only when recognized
     const tripData = parseTripType(text);
-    if (tripData.tripType) {
-        result.tripType = tripData.tripType;
-    }
+    result.tripType = tripData.tripType;
 
     // Parse special requirements
     const reqMatch = text.match(/(?:special|requirements?|preferences?)[\s:]*(.+?)(?:\n\n|\d+\.|$)/is);
@@ -448,19 +450,40 @@ function parseComprehensiveResponse(text) {
         result.requirements = reqMatch[1].trim();
     }
 
-    // Parse passport details
+    // Parse passport details if present
     const passportData = parsePassportDetails(text);
-    if (passportData.passport) {
-        result.passport = passportData.passport;
+    result.passport = passportData.passport;
+
+    // Parse name with explicit self-introduction patterns
+    const nameMatch = text.match(
+        /(?:my name is|i am|i'm|name\s*[:\-])\s*([A-Za-z][A-Za-z\s]{1,40})/i
+    );
+    if (nameMatch) {
+        result.name = nameMatch[1].trim();
+    }
+    const emailMatch = text.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+    if (emailMatch) result.email = emailMatch[1];
+
+    // Parse simple travel type preference (mode of travel)
+    const lowerText = text.toLowerCase();
+    if (lowerText.includes('flight') || lowerText.includes('plane') || lowerText.includes('air')) {
+        result.travelType = 'Flight';
+    } else if (lowerText.includes('train') || lowerText.includes('rail')) {
+        result.travelType = 'Train';
+    } else if (lowerText.includes('bus') || lowerText.includes('coach')) {
+        result.travelType = 'Bus';
+    } else if (lowerText.includes('car') || lowerText.includes('cab') || lowerText.includes('taxi')) {
+        result.travelType = 'Car';
     }
 
-    // Parse contact info
-    const contactData = parseContactInfo(text);
-    if (contactData.name) {
-        result.name = contactData.name;
-    }
-    if (contactData.email) {
-        result.email = contactData.email;
+    // Capture loose date-like travel text if strict patterns miss
+    if (!result.dates) {
+        const looseDateMatch = text.match(
+            /(?:on|from|between|date|dates|travel date|journey)\s*[:\-]?\s*([A-Za-z0-9,\-\/ ]{4,50})/i
+        );
+        if (looseDateMatch) {
+            result.dates = looseDateMatch[1].trim();
+        }
     }
 
     return result;
@@ -472,6 +495,7 @@ function parseComprehensiveResponse(text) {
 function parseUserResponse(stage, text) {
     switch (stage) {
         case 'greeting':
+            return parseComprehensiveResponse(text);
         case 'destination':
             return parseDestination(text);
 

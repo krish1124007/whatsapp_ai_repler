@@ -37,6 +37,10 @@ const travelEnquirySchema = new mongoose.Schema({
         type: mongoose.Schema.Types.Mixed, // Can be number or object with adults/children
         default: null
     },
+    travelType: {
+        type: String,
+        default: null
+    },
     approximateBudget: {
         type: String,
         default: null
