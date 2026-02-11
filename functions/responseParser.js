@@ -548,6 +548,59 @@ function parseUserResponse(stage, text) {
     }
 }
 
+/**
+ * Detect if user wants to end the conversation
+ * This should be conservative to avoid false positives
+ */
+function isUserDisinterested(text, conversationHistory = []) {
+    const lowerText = text.toLowerCase().trim();
+
+    // Strong dismissive phrases that clearly indicate wanting to end
+    const strongDisinterest = [
+        'not interested',
+        'don\'t want',
+        'do not want',
+        'call me back',
+        'call back me',
+        'leave me alone',
+        'stop messaging',
+        'stop asking',
+        'too many questions',
+        'stop bothering'
+    ];
+
+    if (strongDisinterest.some(phrase => lowerText.includes(phrase))) {
+        return true;
+    }
+
+    // Explicit exit words (but not if they're answering a specific question)
+    const exitWords = ['bye', 'goodbye', 'stop', 'cancel', 'exit', 'quit'];
+    if (exitWords.includes(lowerText)) {
+        return true;
+    }
+
+    // Multiple consecutive short dismissive responses suggest disinterest
+    // Check if the last 2-3 messages from user were all very short and dismissive
+    if (conversationHistory.length >= 4) {
+        const recentUserMessages = conversationHistory
+            .filter(msg => msg.role === 'user')
+            .slice(-3)
+            .map(msg => msg.content.toLowerCase().trim());
+
+        const shortDismissive = ['no', 'nope', 'nah', 'ok', 'k'];
+        const dismissiveCount = recentUserMessages.filter(msg =>
+            shortDismissive.includes(msg) || msg.length < 5
+        ).length;
+
+        // If 2+ of the last 3 messages are dismissive AND current is also dismissive
+        if (dismissiveCount >= 2 && shortDismissive.includes(lowerText)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 module.exports = {
     parseUserResponse,
     parseDestination,
@@ -555,5 +608,6 @@ module.exports = {
     parseServices,
     parseContactInfo,
     parseCallbackPreference,
-    parseComprehensiveResponse
+    parseComprehensiveResponse,
+    isUserDisinterested
 };
