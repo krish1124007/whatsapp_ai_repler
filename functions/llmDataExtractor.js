@@ -33,13 +33,15 @@ FIELDS TO EXTRACT:
 
 RULES:
 1. Return ONLY valid JSON. No markdown, no explanations.
-2. If a field is not mentioned, do NOT include it in the JSON (or set to null, but omitting is cleaner).
+2. If a field is not mentioned, OMIT IT completely. Do NOT return "null", "N/A", or "None" as strings.
 3. Be smart about values:
    - "1 lakh" -> "100000"
    - "50k" -> "50000"
    - "Mumbai to Delhi" -> city: "Mumbai", destination: "Delhi"
    - "with wife" -> travellers: "2" (implied) or "Couple"
-   - "2nd class" -> travelType details or budget implications? Map to requirements or just ignore if not standard.
+4. Extract INTENT if possible:
+   - If user says "New trip", "Start over", "Plan new", set "intent": "new_trip"
+   - If user says "Cancel", set "intent": "cancel"
 
 EXAMPLE INPUT: "I want to go to Goa from Mumbai for 3 days with my wife. Budget is 20k."
 EXAMPLE OUTPUT:

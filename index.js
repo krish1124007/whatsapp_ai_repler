@@ -11,7 +11,8 @@ const {
   getOrCreateEnquiry,
   upsertEnquiryFromMessage,
   createCallbackRequest,
-  updateEnquiryData
+  updateEnquiryData,
+  getEnquirySummary // Import summary helper
 } = require("./functions/travelEnquiryHelper");
 const { generateSystemPrompt, generateConversationContext } = require("./functions/systemPromptGenerator");
 const { isUserDisinterested } = require("./functions/responseParser");
@@ -109,6 +110,32 @@ app.post("/webhook", async (req, res) => {
     const upsertResult = await upsertEnquiryFromMessage(from, userText);
     enquiry = upsertResult.enquiry;
 
+    // 1. Handle explicit reset (User said "New Trip")
+    if (upsertResult.isReset) {
+      const resetMsg = "Okay, I've started a new trip plan for you. Where would you like to go?";
+      await sendWhatsAppMessage(from, resetMsg, WHATSAPP_TOKEN, PHONE_NUMBER_ID);
+      // Save conversation state for this message
+      try {
+        await saveContact(from);
+        await saveConversation(from, userText, resetMsg, estimateTokens(userText), estimateTokens(resetMsg));
+      } catch (dbError) { console.error(dbError); }
+      return;
+    }
+
+    // 2. Handle Greeting with Existing Completed Enquiry
+    const isGreeting = /^(hi|hello|hey|greetings|namaste|hola)/i.test(userText.trim());
+    if (isGreeting && enquiry.status === 'in_progress' && enquiry.callbackRequested) {
+      const summary = getEnquirySummary(enquiry);
+      const welcomeBackMsg = `Welcome back! We have your request for: ${summary}.\n\nDo you want to continue with this or plan a *new trip*? (Type "New Trip" to start over)`;
+
+      await sendWhatsAppMessage(from, welcomeBackMsg, WHATSAPP_TOKEN, PHONE_NUMBER_ID);
+      try {
+        await saveContact(from);
+        await saveConversation(from, userText, welcomeBackMsg, estimateTokens(userText), estimateTokens(welcomeBackMsg));
+      } catch (dbError) { console.error(dbError); }
+      return;
+    }
+
     if (isUserDisinterested(userText, conversationHistory)) {
       const goodbyeMessage = "No problem. Our team will reach out to you very soon. Thank you!";
       await createCallbackRequest(from, "ASAP");
@@ -132,7 +159,9 @@ app.post("/webhook", async (req, res) => {
 
     if (upsertResult.hasAllPrimaryFields) {
       await updateEnquiryData(from, "contact_info", {});
-      const finalMessage = `Thank you${enquiry.clientName ? ` ${enquiry.clientName}` : ""}. Our team will call you back shortly.`;
+      // Fix "Thank you null" -> Use valid name or generic fallback
+      const namePart = enquiry.clientName && enquiry.clientName !== 'null' ? ` ${enquiry.clientName}` : "";
+      const finalMessage = `Thank you${namePart}. Our team will call you back shortly.`;
 
       try {
         await saveContact(from);

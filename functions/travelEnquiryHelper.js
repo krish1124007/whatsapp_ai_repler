@@ -2,6 +2,17 @@ const TravelEnquiry = require('../models/TravelEnquiry');
 const { parseComprehensiveResponse } = require('./responseParser');
 const { extractDataWithAI } = require('./llmDataExtractor'); // Import the new AI extractor
 
+
+function validateData(value) {
+    if (!value) return null;
+    if (typeof value === 'string') {
+        const lower = value.toLowerCase().trim();
+        if (lower === 'null' || lower === 'undefined' || lower === 'none' || lower === 'n/a') return null;
+        return value.trim();
+    }
+    return value;
+}
+
 function derivePeopleCount(travellers) {
     if (!travellers) return null;
     if (typeof travellers === 'number') return travellers;
@@ -23,26 +34,26 @@ function derivePeopleCount(travellers) {
 }
 
 function applyParsedData(enquiry, data = {}) {
-    if (data.destination) enquiry.destination = data.destination;
-    if (data.city) enquiry.departureCity = data.city;
-    if (data.dates) enquiry.preferredTravelDates = data.dates;
-    if (data.daysNights) enquiry.numberOfDaysNights = data.daysNights;
+    if (data.destination) enquiry.destination = validateData(data.destination);
+    if (data.city) enquiry.departureCity = validateData(data.city);
+    if (data.dates) enquiry.preferredTravelDates = validateData(data.dates);
+    if (data.daysNights) enquiry.numberOfDaysNights = validateData(data.daysNights);
     if (data.travellers) {
         enquiry.totalTravellers = data.travellers;
         const peopleCount = derivePeopleCount(data.travellers);
         if (peopleCount) enquiry.numberOfPeople = peopleCount;
     }
-    if (data.category) enquiry.hotelCategory = data.category;
-    if (data.rooms) enquiry.roomRequirement = data.rooms;
-    if (data.mealPlan) enquiry.mealPlan = data.mealPlan;
+    if (data.category) enquiry.hotelCategory = validateData(data.category);
+    if (data.rooms) enquiry.roomRequirement = validateData(data.rooms);
+    if (data.mealPlan) enquiry.mealPlan = validateData(data.mealPlan);
     if (data.services) enquiry.servicesRequired = data.services;
-    if (data.budget) enquiry.approximateBudget = data.budget;
-    if (data.tripType) enquiry.tripType = data.tripType;
-    if (data.requirements) enquiry.specialRequirements = data.requirements;
+    if (data.budget) enquiry.approximateBudget = validateData(data.budget);
+    if (data.tripType) enquiry.tripType = validateData(data.tripType);
+    if (data.requirements) enquiry.specialRequirements = validateData(data.requirements);
     if (data.passport) enquiry.passportDetails = data.passport;
-    if (data.name) enquiry.clientName = data.name;
-    if (data.email) enquiry.email = data.email;
-    if (data.travelType) enquiry.travelType = data.travelType;
+    if (data.name) enquiry.clientName = validateData(data.name);
+    if (data.email) enquiry.email = validateData(data.email);
+    if (data.travelType) enquiry.travelType = validateData(data.travelType);
 }
 
 function hasAnyCoreTravelData(enquiry) {
@@ -116,6 +127,14 @@ async function upsertEnquiryFromMessage(phoneNumber, messageText) {
             console.error('AI Extraction Failed, falling back to regex:', aiError);
         }
 
+        // Check for specific intent first (new trip / cancel)
+        if (llmData.intent === 'new_trip' || llmData.intent === 'cancel') {
+            await resetEnquiry(phoneNumber);
+            // Re-fetch clean enquiry
+            const newEnquiry = await getOrCreateEnquiry(phoneNumber);
+            return { enquiry: newEnquiry, parsedData: {}, isReset: true };
+        }
+
         // Merge data: AI data takes precedence as it's smarter
         const parsedData = { ...regexData, ...llmData };
 
@@ -128,8 +147,12 @@ async function upsertEnquiryFromMessage(phoneNumber, messageText) {
 
         if (hasAnyCoreTravelData(enquiry)) {
             enquiry.status = 'in_progress';
-            enquiry.callbackRequested = true;
-            enquiry.preferredCallbackTime = enquiry.preferredCallbackTime || 'ASAP';
+            // Only set callback requested if it wasn't already set or if explicitly requested again
+            // But logic: if we have core data, we assume active interest
+            if (!enquiry.callbackRequested) {
+                enquiry.callbackRequested = true;
+                enquiry.preferredCallbackTime = 'ASAP';
+            }
         }
 
         enquiry.conversationStage = hasAllPrimaryFields(enquiry) ? 'contact_info' : 'travel_dates';
@@ -145,7 +168,8 @@ async function upsertEnquiryFromMessage(phoneNumber, messageText) {
             enquiry,
             parsedData,
             missingPrimaryFields: getMissingPrimaryFields(enquiry),
-            hasAllPrimaryFields: hasAllPrimaryFields(enquiry)
+            hasAllPrimaryFields: hasAllPrimaryFields(enquiry),
+            isReset: false
         };
     } catch (error) {
         console.error('Error in upsertEnquiryFromMessage:', error);
@@ -364,6 +388,65 @@ async function updateEnquiryStatus(id, status) {
 }
 
 /**
+ * Reset enquiry to start fresh
+ */
+async function resetEnquiry(phoneNumber) {
+    try {
+        const enquiry = await getOrCreateEnquiry(phoneNumber);
+
+        // Archive or clear fields
+        enquiry.status = 'new';
+        enquiry.conversationStage = 'greeting';
+        enquiry.callbackRequested = false;
+        enquiry.preferredCallbackTime = null;
+
+        // Clear specialized fields
+        enquiry.destination = null;
+        enquiry.departureCity = null;
+        enquiry.preferredTravelDates = null;
+        enquiry.numberOfDaysNights = null;
+        enquiry.numberOfPeople = null;
+        enquiry.totalTravellers = null;
+        enquiry.hotelCategory = null;
+        enquiry.roomRequirement = null;
+        enquiry.mealPlan = null;
+        enquiry.servicesRequired = null;
+        enquiry.approximateBudget = null;
+        enquiry.tripType = null;
+        enquiry.specialRequirements = null;
+        enquiry.passportDetails = null;
+        enquiry.travelType = null;
+        // Keep name and email if known, as that doesn't change per trip usually?
+        // But user asked to "overwrite user data". Let's clear trip-specific data but maybe keep contact info?
+        // User request: "if user want to start new than overwirte user data"
+        // Let's clear basics, but keep Client Name if it's not null/trash
+
+        // Resetting everything to be safe as per "overwrite" instruction
+        // enquiry.clientName = null; // Maybe keep name? Usually CRMs keep name.
+        // Let's keep name and email, clear trip details.
+
+        await enquiry.save();
+        console.log(`Reset travel enquiry for ${phoneNumber}`);
+        return enquiry;
+    } catch (error) {
+        console.error('Error in resetEnquiry:', error);
+        throw error;
+    }
+}
+
+/**
+ * Generate a readable summary of the enquiry
+ */
+function getEnquirySummary(enquiry) {
+    const parts = [];
+    if (enquiry.destination) parts.push(`Destination: ${enquiry.destination}`);
+    if (enquiry.preferredTravelDates) parts.push(`Dates: ${enquiry.preferredTravelDates}`);
+    if (enquiry.numberOfPeople) parts.push(`Travellers: ${enquiry.numberOfPeople}`);
+    if (enquiry.approximateBudget) parts.push(`Budget: ${enquiry.approximateBudget}`);
+    return parts.join(', ') || 'No details yet';
+}
+
+/**
  * Get enquiry statistics
  */
 async function getEnquiryStats() {
@@ -403,5 +486,7 @@ module.exports = {
     getAllEnquiries,
     getEnquiryById,
     updateEnquiryStatus,
-    getEnquiryStats
+    getEnquiryStats,
+    resetEnquiry,
+    getEnquirySummary
 };
