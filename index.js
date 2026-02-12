@@ -111,8 +111,16 @@ app.post("/webhook", async (req, res) => {
     enquiry = upsertResult.enquiry;
 
     // 1. Handle explicit reset (User said "New Trip")
+    // 1. Handle explicit reset (User said "New Trip") OR Smart Reset (Detected New Destination)
     if (upsertResult.isReset) {
-      const resetMsg = "Okay, I've started a new trip plan for you. Where would you like to go?";
+      let resetMsg = "Okay, I've started a new trip plan for you. Where would you like to go?";
+
+      // If it was a SMART reset (we already captured new data like "Trip to Goa"), customize the message
+      // "do not ask for past details start fresh"
+      if (upsertResult.isSmartReset && enquiry.destination) {
+        resetMsg = `Great! I've noted you're planning a trip to ${enquiry.destination}. When are you planning to travel?`;
+      }
+
       await sendWhatsAppMessage(from, resetMsg, WHATSAPP_TOKEN, PHONE_NUMBER_ID);
       // Save conversation state for this message
       try {
@@ -124,9 +132,14 @@ app.post("/webhook", async (req, res) => {
 
     // 2. Handle Greeting with Existing Completed Enquiry
     const isGreeting = /^(hi|hello|hey|greetings|namaste|hola)/i.test(userText.trim());
-    if (isGreeting && enquiry.status === 'in_progress' && enquiry.callbackRequested) {
+
+    // STRICT CHECK: Only show "Welcome Back" if we actually have useful data (Destination/Origin)
+    // "if all things are null... do not ask user... start over automatic"
+    const hasUsefulData = enquiry.destination || enquiry.departureCity;
+
+    if (isGreeting && enquiry.status === 'in_progress' && enquiry.callbackRequested && hasUsefulData) {
       const summary = getEnquirySummary(enquiry);
-      const welcomeBackMsg = `Welcome back! We have your request for: ${summary}.\n\nDo you want to continue with this or plan a *new trip*? (Type "New Trip" to start over)`;
+      const welcomeBackMsg = `Welcome back! We have your previous request for: ${summary}.\n\nDo you want to continue with this or plan a *new trip*?`;
 
       await sendWhatsAppMessage(from, welcomeBackMsg, WHATSAPP_TOKEN, PHONE_NUMBER_ID);
       try {

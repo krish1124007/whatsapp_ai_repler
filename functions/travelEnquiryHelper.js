@@ -138,6 +138,31 @@ async function upsertEnquiryFromMessage(phoneNumber, messageText) {
         // Merge data: AI data takes precedence as it's smarter
         const parsedData = { ...regexData, ...llmData };
 
+        // 3. SMART RESET CHECK: If user provides a NEW destination while we have an old completed enquiry
+        // "if user directly start... do not ask for past details start fresh"
+        if (enquiry.status === 'in_progress' && enquiry.callbackRequested) {
+            const newDestination = parsedData.destination || llmData.destination;
+            // If we found a destination in the NEW message, assume it's a new trip request
+            if (newDestination) {
+                console.log(`🚀 New destination detected (${newDestination}) in existing enquiry. Auto-resetting for new trip.`);
+                await resetEnquiry(phoneNumber);
+                // Reload fresh enquiry and apply the new data
+                const freshEnquiry = await getOrCreateEnquiry(phoneNumber);
+                applyParsedData(freshEnquiry, parsedData); // Apply the data we just extracted
+
+                freshEnquiry.status = 'in_progress';
+                freshEnquiry.conversationStage = hasAllPrimaryFields(freshEnquiry) ? 'contact_info' : 'travel_dates';
+                await freshEnquiry.save();
+
+                return {
+                    enquiry: freshEnquiry,
+                    parsedData,
+                    isReset: true, // Mark as reset so index.js knows to treat as new
+                    isSmartReset: true // Distinguish from manual "new trip" command
+                };
+            }
+        }
+
         // Ensure numeric fields are consistent if strings were returned
         if (llmData.budget && typeof llmData.budget === 'string') {
             // specialized cleanup if needed, but the prompt handles most
