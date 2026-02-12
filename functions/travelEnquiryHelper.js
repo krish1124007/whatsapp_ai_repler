@@ -1,4 +1,6 @@
 const TravelEnquiry = require('../models/TravelEnquiry');
+const { parseComprehensiveResponse } = require('./responseParser');
+const { extractDataWithAI } = require('./llmDataExtractor'); // Import the new AI extractor
 
 function derivePeopleCount(travellers) {
     if (!travellers) return null;
@@ -63,15 +65,22 @@ function hasAllPrimaryFields(enquiry) {
     );
 }
 
+function getMissingPrimaryFields(enquiry) {
+    const missing = [];
+    if (!enquiry.clientName) missing.push('name');
+    if (!enquiry.destination) missing.push('destination');
+    if (!enquiry.preferredTravelDates) missing.push('travelDate');
+    if (!enquiry.travelType) missing.push('travelType');
+    if (!enquiry.approximateBudget) missing.push('budget');
+    return missing;
+}
+
 /**
- * Get or create a travel enquiry for a phone number
+ * Get or create a travel enquiry for a phone number (phone is logical unique key)
  */
 async function getOrCreateEnquiry(phoneNumber) {
     try {
-        let enquiry = await TravelEnquiry.findOne({
-            phoneNumber,
-            status: { $in: ['new', 'in_progress'] }
-        }).sort({ createdAt: -1 });
+        let enquiry = await TravelEnquiry.findOne({ phoneNumber }).sort({ updatedAt: -1 });
 
         if (!enquiry) {
             enquiry = new TravelEnquiry({
@@ -85,6 +94,61 @@ async function getOrCreateEnquiry(phoneNumber) {
         return enquiry;
     } catch (error) {
         console.error('Error in getOrCreateEnquiry:', error);
+        throw error;
+    }
+}
+
+/**
+ * Unified upsert from every incoming message.
+ * This is the primary storage function to avoid stage-based data loss.
+ */
+async function upsertEnquiryFromMessage(phoneNumber, messageText) {
+    try {
+        const enquiry = await getOrCreateEnquiry(phoneNumber);
+        const regexData = parseComprehensiveResponse(messageText || '');
+
+        // Use AI extraction for better understanding (handles "1 lakh", context, etc.)
+        let llmData = {};
+        try {
+            llmData = await extractDataWithAI(messageText, enquiry);
+            console.log(`🤖 AI Extracted Data for ${phoneNumber}:`, JSON.stringify(llmData));
+        } catch (aiError) {
+            console.error('AI Extraction Failed, falling back to regex:', aiError);
+        }
+
+        // Merge data: AI data takes precedence as it's smarter
+        const parsedData = { ...regexData, ...llmData };
+
+        // Ensure numeric fields are consistent if strings were returned
+        if (llmData.budget && typeof llmData.budget === 'string') {
+            // specialized cleanup if needed, but the prompt handles most
+        }
+
+        applyParsedData(enquiry, parsedData);
+
+        if (hasAnyCoreTravelData(enquiry)) {
+            enquiry.status = 'in_progress';
+            enquiry.callbackRequested = true;
+            enquiry.preferredCallbackTime = enquiry.preferredCallbackTime || 'ASAP';
+        }
+
+        enquiry.conversationStage = hasAllPrimaryFields(enquiry) ? 'contact_info' : 'travel_dates';
+
+        enquiry.collectedData.set(`msg_${Date.now()}`, {
+            rawText: messageText,
+            parsedData
+        });
+
+        await enquiry.save();
+
+        return {
+            enquiry,
+            parsedData,
+            missingPrimaryFields: getMissingPrimaryFields(enquiry),
+            hasAllPrimaryFields: hasAllPrimaryFields(enquiry)
+        };
+    } catch (error) {
+        console.error('Error in upsertEnquiryFromMessage:', error);
         throw error;
     }
 }
@@ -332,6 +396,7 @@ async function getEnquiryStats() {
 
 module.exports = {
     getOrCreateEnquiry,
+    upsertEnquiryFromMessage,
     updateEnquiryData,
     createCallbackRequest,
     getCurrentStage,

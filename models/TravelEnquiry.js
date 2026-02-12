@@ -31,7 +31,7 @@ const travelEnquirySchema = new mongoose.Schema({
     },
     numberOfPeople: {
         type: Number,
-        default: 1
+        default: null
     },
     totalTravellers: {
         type: mongoose.Schema.Types.Mixed, // Can be number or object with adults/children
@@ -174,3 +174,4 @@ travelEnquirySchema.pre('save', function () {
 });
 
 module.exports = mongoose.model('TravelEnquiry', travelEnquirySchema);
+

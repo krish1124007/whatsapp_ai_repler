@@ -41,40 +41,45 @@ function parseTravellers(text) {
         children: [],
         infants: 0
     };
+    let foundTravellerInfo = false;
 
     const lowerText = text.toLowerCase();
 
     // Extract adults
     const adultMatch = lowerText.match(/(\d+)\s*(adult|adults|person|persons|people|pax)/);
     if (adultMatch) {
-        travellers.adults = parseInt(adultMatch[1]);
+        travellers.adults = parseInt(adultMatch[1], 10);
+        foundTravellerInfo = true;
     }
 
     // Extract children with ages
     const childMatches = text.matchAll(/(\d+)\s*(child|children|kid|kids).*?(\d+)\s*(year|years|yr|yrs)/gi);
     for (const match of childMatches) {
-        const age = parseInt(match[3]);
+        const age = parseInt(match[3], 10);
         travellers.children.push({ age });
+        foundTravellerInfo = true;
     }
 
     // If children mentioned but no age, try to extract count
     if (travellers.children.length === 0) {
         const childCountMatch = lowerText.match(/(\d+)\s*(child|children|kid|kids)/);
         if (childCountMatch) {
-            const count = parseInt(childCountMatch[1]);
+            const count = parseInt(childCountMatch[1], 10);
             for (let i = 0; i < count; i++) {
-                travellers.children.push({ age: 0 }); // Age not specified
+                travellers.children.push({ age: 0 });
             }
+            foundTravellerInfo = true;
         }
     }
 
     // Extract infants
     const infantMatch = lowerText.match(/(\d+)\s*(infant|infants|baby|babies)/);
     if (infantMatch) {
-        travellers.infants = parseInt(infantMatch[1]);
+        travellers.infants = parseInt(infantMatch[1], 10);
+        foundTravellerInfo = true;
     }
 
-    return { travellers };
+    return { travellers: foundTravellerInfo ? travellers : null };
 }
 
 /**
@@ -635,3 +640,5 @@ module.exports = {
     parseComprehensiveResponse,
     isUserDisinterested
 };
+
+

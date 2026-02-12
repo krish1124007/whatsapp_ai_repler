@@ -7,9 +7,14 @@ const dashboardRoutes = require("./routes/dashboard");
 const { saveContact, saveConversation, estimateTokens } = require("./functions/conversationHelper");
 const adminRoutes = require("./routes/admin.js");
 const enquiriesRoutes = require("./routes/enquiries.js");
-const { getOrCreateEnquiry, updateEnquiryData, createCallbackRequest } = require("./functions/travelEnquiryHelper");
+const {
+  getOrCreateEnquiry,
+  upsertEnquiryFromMessage,
+  createCallbackRequest,
+  updateEnquiryData
+} = require("./functions/travelEnquiryHelper");
 const { generateSystemPrompt, generateConversationContext } = require("./functions/systemPromptGenerator");
-const { parseUserResponse, isUserDisinterested } = require("./functions/responseParser");
+const { isUserDisinterested } = require("./functions/responseParser");
 
 const app = express();
 
@@ -45,6 +50,23 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
+async function sendWhatsAppMessage(to, body, token, phoneId) {
+  await axios.post(
+    `https://graph.facebook.com/v19.0/${phoneId}/messages`,
+    {
+      messaging_product: "whatsapp",
+      to,
+      text: { body }
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      }
+    }
+  );
+}
+
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 
@@ -54,7 +76,6 @@ app.post("/webhook", async (req, res) => {
     const value = changes?.value;
 
     if (value?.statuses) {
-      console.log("Status update:", JSON.stringify(value.statuses, null, 2));
       return;
     }
 
@@ -69,11 +90,7 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    console.log(`User (${from}):`, userText);
-
-    const enquiry = await getOrCreateEnquiry(from);
-    const currentStage = enquiry.conversationStage;
-    console.log(`Current stage: ${currentStage}`);
+    let enquiry = await getOrCreateEnquiry(from);
 
     let conversationHistory = [];
     try {
@@ -89,14 +106,12 @@ app.post("/webhook", async (req, res) => {
       console.error("Conversation history error:", historyError.message);
     }
 
+    const upsertResult = await upsertEnquiryFromMessage(from, userText);
+    enquiry = upsertResult.enquiry;
+
     if (isUserDisinterested(userText, conversationHistory)) {
       const goodbyeMessage = "No problem. Our team will reach out to you very soon. Thank you!";
-
-      try {
-        await createCallbackRequest(from, "ASAP");
-      } catch (callbackError) {
-        console.error("Callback storage error:", callbackError.message);
-      }
+      await createCallbackRequest(from, "ASAP");
 
       try {
         await saveContact(from);
@@ -111,52 +126,41 @@ app.post("/webhook", async (req, res) => {
         console.error("Database save error:", dbError.message);
       }
 
-      await axios.post(
-        `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`,
-        {
-          messaging_product: "whatsapp",
-          to: from,
-          text: { body: goodbyeMessage }
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-            "Content-Type": "application/json"
-          }
-        }
-      );
+      await sendWhatsAppMessage(from, goodbyeMessage, WHATSAPP_TOKEN, PHONE_NUMBER_ID);
       return;
     }
 
-    let parsedData = null;
-    if (currentStage !== "completed") {
-      parsedData = parseUserResponse(currentStage, userText);
-      console.log("Parsed data:", parsedData);
-    }
+    if (upsertResult.hasAllPrimaryFields) {
+      await updateEnquiryData(from, "contact_info", {});
+      const finalMessage = `Thank you${enquiry.clientName ? ` ${enquiry.clientName}` : ""}. Our team will call you back shortly.`;
 
-    let updatedEnquiry = enquiry;
-    if (parsedData && currentStage !== "completed") {
       try {
-        if (currentStage === "callback_or_contact" && parsedData.wantsCallback) {
-          await createCallbackRequest(from, parsedData.preferredTime);
-        } else {
-          updatedEnquiry = await updateEnquiryData(from, currentStage, parsedData);
-        }
-      } catch (updateError) {
-        console.error("Enquiry update error:", updateError.message);
+        await saveContact(from);
+        await saveConversation(
+          from,
+          userText,
+          finalMessage,
+          estimateTokens(userText),
+          estimateTokens(finalMessage)
+        );
+      } catch (dbError) {
+        console.error("Database save error:", dbError.message);
       }
+
+      await sendWhatsAppMessage(from, finalMessage, WHATSAPP_TOKEN, PHONE_NUMBER_ID);
+      return;
     }
 
-    const stageForPrompt = updatedEnquiry.conversationStage || currentStage;
+    const stageForPrompt = enquiry.conversationStage || "travel_dates";
     const systemPrompt = generateSystemPrompt(stageForPrompt, {
-      destination: updatedEnquiry.destination,
-      preferredTravelDates: updatedEnquiry.preferredTravelDates,
-      clientName: updatedEnquiry.clientName,
-      tripType: updatedEnquiry.tripType,
-      travelType: updatedEnquiry.travelType,
-      approximateBudget: updatedEnquiry.approximateBudget
+      destination: enquiry.destination,
+      preferredTravelDates: enquiry.preferredTravelDates,
+      clientName: enquiry.clientName,
+      tripType: enquiry.tripType,
+      travelType: enquiry.travelType,
+      approximateBudget: enquiry.approximateBudget
     });
-    const conversationContext = generateConversationContext(updatedEnquiry);
+    const conversationContext = generateConversationContext(enquiry);
 
     const messages = [
       { role: "system", content: systemPrompt + conversationContext },
@@ -169,8 +173,8 @@ app.post("/webhook", async (req, res) => {
       {
         model: "llama-3.1-8b-instant",
         messages,
-        temperature: 0.7,
-        max_tokens: 500
+        temperature: 0.5,
+        max_tokens: 300
       },
       {
         headers: {
@@ -180,7 +184,7 @@ app.post("/webhook", async (req, res) => {
       }
     );
 
-    const replyText = aiResponse.data?.choices?.[0]?.message?.content || "Sorry, try again.";
+    const replyText = aiResponse.data?.choices?.[0]?.message?.content || "Thanks. Our team will call you shortly.";
     const usage = aiResponse.data.usage || {};
     const inputTokens = usage.prompt_tokens || estimateTokens(userText);
     const outputTokens = usage.completion_tokens || estimateTokens(replyText);
@@ -192,20 +196,7 @@ app.post("/webhook", async (req, res) => {
       console.error("Database save error:", dbError.message);
     }
 
-    await axios.post(
-      `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`,
-      {
-        messaging_product: "whatsapp",
-        to: from,
-        text: { body: replyText }
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          "Content-Type": "application/json"
-        }
-      }
-    );
+    await sendWhatsAppMessage(from, replyText, WHATSAPP_TOKEN, PHONE_NUMBER_ID);
   } catch (error) {
     console.error("ERROR:", error.response?.data || error.message);
     if (error.stack) {
