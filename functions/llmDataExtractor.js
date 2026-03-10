@@ -58,7 +58,7 @@ EXAMPLE OUTPUT:
         const response = await axios.post(
             "https://api.groq.com/openai/v1/chat/completions",
             {
-                model: "llama-3.1-8b-instant", // Fast and capable enough for extraction
+                model: "openai/gpt-oss-120b", // Fast and capable enough for extraction
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: text }
