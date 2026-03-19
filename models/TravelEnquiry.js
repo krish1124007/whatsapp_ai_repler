@@ -146,8 +146,11 @@ travelEnquirySchema.index({ status: 1 });
 travelEnquirySchema.index({ tags: 1 });
 travelEnquirySchema.index({ callbackRequested: 1 });
 
+// TTL Index for automatic deletion after 15 days (15 * 24 * 60 * 60 = 1,296,000 seconds)
+travelEnquirySchema.index({ createdAt: 1 }, { expireAfterSeconds: 1296000 });
+
 // Auto-tag based on trip type
-travelEnquirySchema.pre('save', function () {
+travelEnquirySchema.pre('save', function (next) {
     // Auto-tag honeymoon trips
     if (this.tripType && this.tripType.toLowerCase().includes('honeymoon')) {
         if (!this.tags.includes('honeymoon')) {
@@ -171,7 +174,7 @@ travelEnquirySchema.pre('save', function () {
 
     // Update lastUpdated
     this.lastUpdated = Date.now();
+    next();
 });
 
 module.exports = mongoose.model('TravelEnquiry', travelEnquirySchema);
-

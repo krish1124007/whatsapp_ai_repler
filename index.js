@@ -223,9 +223,20 @@ app.post("/webhook", async (req, res) => {
     // FETCH PACKAGES & QA
     let relevantPackages = [];
     if (enquiry.destination) {
+      console.log(`🔍 Searching packages for destination: "${enquiry.destination}"`);
+      // More flexible search: split by space/comma and search any word
+      const destParts = enquiry.destination.split(/[\s,]+/).filter(p => p.length > 2);
+      const searchTerms = destParts.length > 0 ? destParts : [enquiry.destination];
+      
       relevantPackages = await Package.find({
-        destination: { $regex: enquiry.destination, $options: "i" }
+        $or: [
+          { destination: { $regex: enquiry.destination, $options: "i" } },
+          { name: { $regex: enquiry.destination, $options: "i" } },
+          ...searchTerms.map(term => ({ destination: { $regex: term, $options: "i" } }))
+        ]
       }).limit(3);
+      
+      console.log(`✅ Found ${relevantPackages.length} relevant packages.`);
     }
 
     const allQAs = await QuestionAnswer.find().limit(10);
