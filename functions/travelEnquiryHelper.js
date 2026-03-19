@@ -368,11 +368,24 @@ async function getAllEnquiries(filters = {}) {
         if (filters.callbackRequested !== undefined) query.callbackRequested = filters.callbackRequested;
         if (filters.destination) query.destination = new RegExp(filters.destination, 'i');
 
+        const page = parseInt(filters.page) || 1;
+        const limit = parseInt(filters.limit) || 10;
+        const skip = (page - 1) * limit;
+
         const enquiries = await TravelEnquiry.find(query)
             .sort({ createdAt: -1 })
-            .limit(filters.limit || 100);
+            .skip(skip)
+            .limit(limit);
 
-        return enquiries;
+        const total = await TravelEnquiry.countDocuments(query);
+
+        return {
+            enquiries,
+            total,
+            page,
+            limit,
+            pages: Math.ceil(total / limit)
+        };
     } catch (error) {
         console.error('Error in getAllEnquiries:', error);
         throw error;

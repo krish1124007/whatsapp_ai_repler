@@ -40,15 +40,21 @@ router.get('/', authMiddleware, async (req, res) => {
             tags: req.query.tags ? req.query.tags.split(',') : undefined,
             callbackRequested: req.query.callbackRequested === 'true' ? true : req.query.callbackRequested === 'false' ? false : undefined,
             destination: req.query.destination,
-            limit: req.query.limit ? parseInt(req.query.limit) : 100
+            page: req.query.page,
+            limit: req.query.limit
         };
 
-        const enquiries = await getAllEnquiries(filters);
+        const result = await getAllEnquiries(filters);
 
         res.json({
             success: true,
-            count: enquiries.length,
-            data: enquiries
+            data: result.enquiries,
+            pagination: {
+                total: result.total,
+                page: result.page,
+                limit: result.limit,
+                pages: result.pages
+            }
         });
     } catch (error) {
         console.error('Error fetching enquiries:', error);
