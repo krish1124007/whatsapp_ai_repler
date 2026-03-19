@@ -1,7 +1,19 @@
 /**
  * Generate dynamic system prompt based on conversation stage
  */
-function generateSystemPrompt(stage, enquiryData = {}) {
+function generateSystemPrompt(stage, enquiryData = {}, relevantPackages = [], allQAs = []) {
+    let packageInfo = "";
+    if (relevantPackages.length > 0) {
+        packageInfo = "\n\nAVAILABLE PACKAGES FOR THIS DESTINATION:\n" + 
+            relevantPackages.map(p => `- ${p.name}: ${p.description} (Price: ${p.price}, Duration: ${p.duration})`).join("\n");
+    }
+
+    let qaInfo = "";
+    if (allQAs.length > 0) {
+        qaInfo = "\n\nFREQUENTLY ASKED QUESTIONS:\n" + 
+            allQAs.map(q => `Q: ${q.question}\nA: ${q.answer}`).join("\n\n");
+    }
+
     const basePrompt = `You are a travel assistant for JET A FLY Tours & Travels.
 
 Core behavior:
@@ -17,6 +29,10 @@ Core behavior:
 5. Contact number is already available from WhatsApp. Do not ask for it.
 6. Keep replies short and easy.
 7. Last line before ending should confirm team callback.
+
+${packageInfo}
+
+${qaInfo}
 `;
 
     const stagePrompts = {

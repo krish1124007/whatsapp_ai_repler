@@ -441,14 +441,7 @@ async function resetEnquiry(phoneNumber) {
         enquiry.specialRequirements = null;
         enquiry.passportDetails = null;
         enquiry.travelType = null;
-        // Keep name and email if known, as that doesn't change per trip usually?
-        // But user asked to "overwrite user data". Let's clear trip-specific data but maybe keep contact info?
-        // User request: "if user want to start new than overwirte user data"
-        // Let's clear basics, but keep Client Name if it's not null/trash
-
-        // Resetting everything to be safe as per "overwrite" instruction
-        // enquiry.clientName = null; // Maybe keep name? Usually CRMs keep name.
-        // Let's keep name and email, clear trip details.
+        enquiry.collectedData = new Map();
 
         await enquiry.save();
         console.log(`Reset travel enquiry for ${phoneNumber}`);

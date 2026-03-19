@@ -3,6 +3,7 @@ const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
 const connectDB = require("./config/database");
+const Conversation = require("./models/Conversation");
 const dashboardRoutes = require("./routes/dashboard");
 const { saveContact, saveConversation, estimateTokens } = require("./functions/conversationHelper");
 const adminRoutes = require("./routes/admin.js");
@@ -12,10 +13,16 @@ const {
   upsertEnquiryFromMessage,
   createCallbackRequest,
   updateEnquiryData,
-  getEnquirySummary // Import summary helper
+  getEnquirySummary, // Import summary helper
+  resetEnquiry
 } = require("./functions/travelEnquiryHelper");
 const { generateSystemPrompt, generateConversationContext } = require("./functions/systemPromptGenerator");
 const { isUserDisinterested } = require("./functions/responseParser");
+
+const packageRoutes = require("./routes/packages.js");
+const qaRoutes = require("./routes/qa.js");
+const Package = require("./models/Package");
+const QuestionAnswer = require("./models/QuestionAnswer");
 
 const app = express();
 
@@ -38,6 +45,8 @@ app.get("/", (req, res) => {
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/enquiries", enquiriesRoutes);
+app.use("/api/packages", packageRoutes);
+app.use("/api/qa", qaRoutes);
 
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -91,11 +100,27 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
+    // 0. Auto-Reset if last message was 15+ days ago
+    try {
+      const lastConv = await Conversation.findOne({ phoneNumber: from }).sort({ createdAt: -1 });
+      if (lastConv) {
+        const fifteenDaysAgo = new Date();
+        fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+
+        if (lastConv.createdAt < fifteenDaysAgo) {
+          console.log(`Auto-resetting conversation for ${from} due to 15+ days inactivity.`);
+          await Conversation.deleteMany({ phoneNumber: from });
+          await resetEnquiry(from);
+        }
+      }
+    } catch (resetError) {
+      console.error("Auto-reset error:", resetError.message);
+    }
+
     let enquiry = await getOrCreateEnquiry(from);
 
     let conversationHistory = [];
     try {
-      const Conversation = require("./models/Conversation");
       const recentConversation = await Conversation.findOne({ phoneNumber: from }).sort({ createdAt: -1 });
       if (recentConversation?.messages?.length) {
         conversationHistory = recentConversation.messages.slice(-5).map((msg) => ({
@@ -194,6 +219,17 @@ app.post("/webhook", async (req, res) => {
     }
 
     const stageForPrompt = enquiry.conversationStage || "travel_dates";
+
+    // FETCH PACKAGES & QA
+    let relevantPackages = [];
+    if (enquiry.destination) {
+      relevantPackages = await Package.find({
+        destination: { $regex: enquiry.destination, $options: "i" }
+      }).limit(3);
+    }
+
+    const allQAs = await QuestionAnswer.find().limit(10);
+
     const systemPrompt = generateSystemPrompt(stageForPrompt, {
       destination: enquiry.destination,
       preferredTravelDates: enquiry.preferredTravelDates,
@@ -201,7 +237,8 @@ app.post("/webhook", async (req, res) => {
       tripType: enquiry.tripType,
       travelType: enquiry.travelType,
       approximateBudget: enquiry.approximateBudget
-    });
+    }, relevantPackages, allQAs);
+
     const conversationContext = generateConversationContext(enquiry);
 
     const messages = [
