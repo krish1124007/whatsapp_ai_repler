@@ -150,7 +150,7 @@ travelEnquirySchema.index({ callbackRequested: 1 });
 travelEnquirySchema.index({ createdAt: 1 }, { expireAfterSeconds: 1296000 });
 
 // Auto-tag based on trip type
-travelEnquirySchema.pre('save', function (next) {
+travelEnquirySchema.pre('save', function () {
     // Auto-tag honeymoon trips
     if (this.tripType && this.tripType.toLowerCase().includes('honeymoon')) {
         if (!this.tags.includes('honeymoon')) {
@@ -174,7 +174,6 @@ travelEnquirySchema.pre('save', function (next) {
 
     // Update lastUpdated
     this.lastUpdated = Date.now();
-    next();
 });
 
 module.exports = mongoose.model('TravelEnquiry', travelEnquirySchema);
