@@ -24,6 +24,14 @@ const qaRoutes = require("./routes/qa.js");
 const Package = require("./models/Package");
 const QuestionAnswer = require("./models/QuestionAnswer");
 
+// Generic automation features (ported from zatpat UI)
+const handoverRoutes = require("./routes/handover.js");
+const analyticsRoutes = require("./routes/analytics.js");
+const templatesRoutes = require("./routes/templates.js");
+const broadcastRoutes = require("./routes/broadcast.js");
+const botConfigRoutes = require("./routes/botConfig.js");
+const Handover = require("./models/Handover");
+
 const app = express();
 
 connectDB();
@@ -47,6 +55,11 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/enquiries", enquiriesRoutes);
 app.use("/api/packages", packageRoutes);
 app.use("/api/qa", qaRoutes);
+app.use("/api/handover", handoverRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/templates", templatesRoutes);
+app.use("/api/broadcast", broadcastRoutes);
+app.use("/api/bot-config", botConfigRoutes);
 
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -98,6 +111,34 @@ app.post("/webhook", async (req, res) => {
     const userText = message.text?.body;
     if (!userText) {
       return;
+    }
+
+    // ── Human Handover check ──────────────────────────
+    // If an agent has taken over this chat, the bot must NOT auto-reply.
+    // We still record the incoming message so it shows in the chat history.
+    try {
+      const handoverRecord = await Handover.findOne({ phoneNumber: from });
+      if (handoverRecord && handoverRecord.controller === "human") {
+        console.log(`🤝 [HANDOVER] ${from} is under human control — bot skipping`);
+        try {
+          await saveContact(from);
+          const inTokens = estimateTokens(userText);
+          await Conversation.create({
+            phoneNumber: from,
+            messages: [
+              { role: "user", content: userText, timestamp: new Date(), inputTokens: inTokens }
+            ],
+            totalInputTokens: inTokens,
+            startedAt: new Date(),
+            lastMessageAt: new Date()
+          });
+        } catch (dbErr) {
+          console.error("DB save error (handover):", dbErr.message);
+        }
+        return;
+      }
+    } catch (handoverErr) {
+      console.error("Handover lookup error:", handoverErr.message);
     }
 
     // 0. Auto-Reset if last message was 15+ days ago
