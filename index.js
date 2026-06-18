@@ -34,10 +34,13 @@ const botConfigRoutes = require("./routes/botConfig.js");
 const flowsRoutes = require("./routes/flows.js");
 const mediaRoutes = require("./routes/media.js");
 const Handover = require("./models/Handover");
+const seedDefaultFlow = require("./functions/seedDefaults");
 
 const app = express();
 
-connectDB();
+connectDB().then(() => {
+  seedDefaultFlow();
+});
 
 app.use(cors());
 app.use(express.json());
