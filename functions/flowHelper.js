@@ -37,7 +37,7 @@ async function checkAndStartFlow(from, userText, conversation) {
             phoneNumber: from,
             activeFlowId: matchedFlow._id,
             currentStepIndex: 0,
-            messages: [{ role: "user", content: userText }]
+            messages: []
         });
     }
 
@@ -83,7 +83,7 @@ async function handleActiveFlow(from, userText, conversation) {
             conversation.activeFlowId = null;
             await conversation.save();
             const endMsg = aiResponse.message || "Thank you! We have recorded your response.";
-            await sendRawMessage(from, endMsg, userText);
+            await sendRawMessage(from, endMsg, userText, conversation);
             return true;
         }
 
@@ -95,7 +95,7 @@ async function handleActiveFlow(from, userText, conversation) {
     } else {
         // Diverted (related or unrelated)
         // Send AI's generated message which should answer (if related) and repeat the question
-        await sendRawMessage(from, aiResponse.message, userText);
+        await sendRawMessage(from, aiResponse.message, userText, conversation);
         return true;
     }
 }
@@ -189,7 +189,15 @@ async function sendFlowStepMessage(to, step, flow, conversation, userText, prefi
     );
 
     await saveContact(to);
-    await saveConversation(to, userText, body, estimateTokens(userText), estimateTokens(body));
+    
+    if (conversation) {
+        conversation.messages.push({ role: 'user', content: userText, timestamp: new Date(), inputTokens: estimateTokens(userText) });
+        conversation.messages.push({ role: 'assistant', content: body, timestamp: new Date(), outputTokens: estimateTokens(body) });
+        conversation.totalInputTokens = (conversation.totalInputTokens || 0) + estimateTokens(userText);
+        conversation.totalOutputTokens = (conversation.totalOutputTokens || 0) + estimateTokens(body);
+        conversation.lastMessageAt = new Date();
+        await conversation.save();
+    }
     
     // Handle autoNextStep
     if (step.autoNextStep) {
@@ -208,7 +216,7 @@ async function sendFlowStepMessage(to, step, flow, conversation, userText, prefi
     }
 }
 
-async function sendRawMessage(to, body, userText) {
+async function sendRawMessage(to, body, userText, conversation) {
     await axios.post(
         `https://graph.facebook.com/v19.0/${process.env.PHONE_NUMBER_ID}/messages`,
         {
@@ -224,7 +232,16 @@ async function sendRawMessage(to, body, userText) {
         }
     );
     await saveContact(to);
-    await saveConversation(to, userText, body, estimateTokens(userText), estimateTokens(body));
+    if (conversation) {
+        conversation.messages.push({ role: 'user', content: userText, timestamp: new Date(), inputTokens: estimateTokens(userText) });
+        conversation.messages.push({ role: 'assistant', content: body, timestamp: new Date(), outputTokens: estimateTokens(body) });
+        conversation.totalInputTokens = (conversation.totalInputTokens || 0) + estimateTokens(userText);
+        conversation.totalOutputTokens = (conversation.totalOutputTokens || 0) + estimateTokens(body);
+        conversation.lastMessageAt = new Date();
+        await conversation.save();
+    } else {
+        await saveConversation(to, userText, body, estimateTokens(userText), estimateTokens(body));
+    }
 }
 
 module.exports = {
