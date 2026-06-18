@@ -46,6 +46,15 @@ const conversationSchema = new mongoose.Schema({
     lastMessageAt: {
         type: Date,
         default: Date.now
+    },
+    activeFlowId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Flow',
+        default: null
+    },
+    currentStepIndex: {
+        type: Number,
+        default: 0
     }
 }, {
     timestamps: true

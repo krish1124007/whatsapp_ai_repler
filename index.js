@@ -18,6 +18,7 @@ const {
 } = require("./functions/travelEnquiryHelper");
 const { generateSystemPrompt, generateConversationContext } = require("./functions/systemPromptGenerator");
 const { isUserDisinterested } = require("./functions/responseParser");
+const { checkAndStartFlow, handleActiveFlow } = require("./functions/flowHelper");
 
 const packageRoutes = require("./routes/packages.js");
 const qaRoutes = require("./routes/qa.js");
@@ -30,6 +31,8 @@ const analyticsRoutes = require("./routes/analytics.js");
 const templatesRoutes = require("./routes/templates.js");
 const broadcastRoutes = require("./routes/broadcast.js");
 const botConfigRoutes = require("./routes/botConfig.js");
+const flowsRoutes = require("./routes/flows.js");
+const mediaRoutes = require("./routes/media.js");
 const Handover = require("./models/Handover");
 
 const app = express();
@@ -60,6 +63,9 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/templates", templatesRoutes);
 app.use("/api/broadcast", broadcastRoutes);
 app.use("/api/bot-config", botConfigRoutes);
+app.use("/api/flows", flowsRoutes);
+app.use("/api/media", mediaRoutes);
+app.use("/uploads", express.static(require("path").join(__dirname, "uploads")));
 
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -103,12 +109,21 @@ app.post("/webhook", async (req, res) => {
     }
 
     const message = value?.messages?.[0];
-    if (!message || message.type !== "text") {
+    if (!message || (message.type !== "text" && message.type !== "interactive")) {
       return;
     }
 
     const from = message.from;
-    const userText = message.text?.body;
+    let userText = "";
+    if (message.type === "text") {
+        userText = message.text?.body;
+    } else if (message.type === "interactive") {
+        if (message.interactive.type === "button_reply") {
+            userText = message.interactive.button_reply.title;
+        } else if (message.interactive.type === "list_reply") {
+            userText = message.interactive.list_reply.title;
+        }
+    }
     if (!userText) {
       return;
     }
@@ -175,6 +190,17 @@ app.post("/webhook", async (req, res) => {
 
     const upsertResult = await upsertEnquiryFromMessage(from, userText);
     enquiry = upsertResult.enquiry;
+
+    // --- NEW DYNAMIC FLOW BUILDER LOGIC ---
+    let conversationDoc = await Conversation.findOne({ phoneNumber: from }).sort({ createdAt: -1 });
+    if (conversationDoc && conversationDoc.activeFlowId) {
+      const handled = await handleActiveFlow(from, userText, conversationDoc);
+      if (handled) return;
+    } else {
+      const flowStarted = await checkAndStartFlow(from, userText, conversationDoc);
+      if (flowStarted) return;
+    }
+    // --------------------------------------
 
     // 1. Handle explicit reset (User said "New Trip")
     // 1. Handle explicit reset (User said "New Trip") OR Smart Reset (Detected New Destination)
